@@ -1,0 +1,6 @@
+{
+  "name": "DATA ADVENTURE – Hành Trình Chinh Phục Dữ Liệu",
+  "description": "Ứng dụng học tập tương tác môn Tin học - Bài 13: Biểu diễn dữ liệu dành cho học sinh phổ thông, kết nối Google Sheets qua Google Apps Script.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
