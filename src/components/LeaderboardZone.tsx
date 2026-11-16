@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, CloudOff, Crown, Medal, RefreshCw, Trophy } from 'lucide-react';
 import { fetchLeaderboard, getShortStudentName } from '../services/apiService';
 import { ConnectionMode, LeaderboardEntry, StudentProfile } from '../types';
-import { DataBotGuide, RobotMood } from './DataBotGuide';
+import { ScratchCatGuide, ScratchCatMood } from './ScratchCatGuide';
 
 interface LeaderboardZoneProps {
   student: StudentProfile;
@@ -25,15 +25,18 @@ export function LeaderboardZone({ student, connectionMode, onBack }: Leaderboard
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const res = await fetchLeaderboard(student.student_id);
-    setConnected(res.connected);
-    setTop10(res.top10);
-    setTop50(res.top50);
-    setMyRank(res.my_rank);
-    setTotalStudents(res.total_students);
-    setLastUpdated(res.updated_at || '');
-    if (res.error) setError(res.error);
-    setLoading(false);
+    try {
+      const res = await fetchLeaderboard(student.student_id);
+      setConnected(res.synced ?? true);
+      setTop10(res.top10 || []);
+      setTop50(res.top50 || []);
+      setMyRank(res.myRank || null);
+      setTotalStudents(res.totalStudents || 0);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Lỗi tải bảng xếp hạng');
+    } finally {
+      setLoading(false);
+    }
   }, [student.student_id]);
 
   useEffect(() => {
@@ -45,7 +48,7 @@ export function LeaderboardZone({ student, connectionMode, onBack }: Leaderboard
     return () => window.clearInterval(timer);
   }, [loadData, connectionMode]);
 
-  const botMood: RobotMood = myRank ? 'cheering' : 'happy';
+  const catMood: ScratchCatMood = myRank ? 'cheering' : 'happy';
   const botMessage = myRank
     ? `Chúc mừng ${shortName}, bạn đã lọt vào bảng xếp hạng với vị trí #${myRank.rank} (${myRank.total_score} điểm)!`
     : connected
@@ -93,7 +96,7 @@ export function LeaderboardZone({ student, connectionMode, onBack }: Leaderboard
       </header>
 
       <main className="mx-auto max-w-7xl space-y-6 px-4 pt-6 sm:px-6">
-        <DataBotGuide message={botMessage} mood={botMood} compact />
+        <ScratchCatGuide message={botMessage} mood={catMood} compact />
 
         {!connected ? (
           <div className="rounded-3xl border border-amber-200 bg-white p-10 text-center card-3d">

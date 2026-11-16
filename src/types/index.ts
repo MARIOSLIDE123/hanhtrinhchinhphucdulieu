@@ -1,4 +1,4 @@
-export type ZoneId = 'home' | 'learn' | 'review' | 'challenge' | 'leaderboard' | 'team';
+export type ZoneId = 'home' | 'vandung' | 'leaderboard';
 
 export type ConnectionMode = 'connected' | 'offline';
 
@@ -48,76 +48,54 @@ export interface LeaderboardEntry {
   last_active: string;
 }
 
-export interface GroupMemberSummary {
-  student_id: string;
-  display_name: string;
-  school: string;
-  class_name: string;
-  total_score: number;
-}
-
-export interface TeamGroup {
-  group_id: string;
-  group_name: string;
-  members: GroupMemberSummary[];
-  group_score: number;
-  updated_at?: string;
-}
-
-export interface GroupAssignment {
-  assignment_id: string;
-  group_id: string;
-  title: string;
-  description: string;
-  questions: string[];
-  max_score: number;
-  status: string;
-  created_at?: string;
-}
-
-export interface TeamQuestion {
-  question_id: string;
-  assignment_id: string;
-  question_text: string;
-  question_type: 'single_choice' | 'text';
-  options: string[];
-  correct_answer: string;
-  points: number;
-  explanation: string;
-}
-
 export interface AppConfig {
   grade_level: string;
   subject_name: string;
   lesson_title: string;
 }
 
-export type ChallengeGroupKey = 'A' | 'B' | 'C' | 'EXT';
+export type VanDungQuestionId = 'VD_Q1' | 'VD_Q2' | 'VD_Q3' | 'VD_Q4' | 'VD_Q5';
 
-export type ChallengeInteractionType =
-  | 'single_choice'
-  | 'multi_choice'
-  | 'drag_drop'
-  | 'fill_blank'
-  | 'matching'
-  | 'expression_table'
-  | 'circle_practice';
+export type VanDungType = 'single_choice' | 'multi_choice' | 'drag_drop' | 'fill_blank' | 'matching';
 
-export interface ChallengeQuestion {
+export interface VanDungOption {
   id: string;
-  group: ChallengeGroupKey;
-  groupLabel: string;
-  numberLabel: string;
-  type: ChallengeInteractionType;
+  label: string;
+  badge?: string;
+}
+
+export interface VanDungMatchItem {
+  id: string;
+  text: string;
+}
+
+export interface VanDungQuestion {
+  id: VanDungQuestionId;
+  index: number;
+  title: string;
+  subtitle: string;
+  type: VanDungType;
   typeLabel: string;
   prompt: string;
-  maxScore: number;
-  options?: { id: string; label: string }[];
+  instruction?: string;
+  points: number; // 20
+  // Dành cho Single Choice & Multi Choice
+  options?: VanDungOption[];
+  // Dành cho Drag & Drop (Thử thách 3)
+  textBefore?: string;
+  textMiddle?: string;
+  textAfter?: string;
   dragItems?: string[];
-  dropZones?: string[];
-  matchLeft?: string[];
-  matchRight?: { id: string; label: string }[];
-  blankTemplate?: string;
+  // Dành cho Fill in blank (Thử thách 4)
+  formulaDisplay?: string;
+  hint?: string;
+  // Dành cho Matching (Thử thách 5)
+  columnA?: VanDungMatchItem[];
+  columnB?: VanDungMatchItem[];
+  // Đáp án đúng
+  correctAnswer: unknown;
+  explanationCorrect: string;
+  explanationIncorrect: string;
 }
 
 export interface GradeFeedback {

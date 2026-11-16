@@ -263,10 +263,12 @@ function doGet(e) {
         return jsonResponse_(getAssignments_(ss));
       case 'getAppConfig':
         return jsonResponse_(getAppConfig_(ss));
+      case 'getSharedData':
       case 'getInitialData':
         return jsonResponse_({
           ok: true,
           config: getAppConfig_(ss).config,
+          vanDungQuestions: getVanDungQuestions_(ss),
           groups: getGroups_(ss).groups,
           assignments: getAssignments_(ss).assignments,
           questionBank: getQuestionBank_(ss).questions
@@ -298,6 +300,9 @@ function doPost(e) {
       case 'getTeacherOverview':
         requireTeacherAuth_(body.teacher_token, body.password);
         return jsonResponse_(getTeacherOverview_(ss));
+      case 'saveVanDungQuestions':
+        requireTeacherAuth_(body.teacher_token, body.password);
+        return jsonResponse_(saveVanDungQuestions_(ss, body));
       case 'saveGroups':
         requireTeacherAuth_(body.teacher_token, body.password);
         return jsonResponse_(saveGroups_(ss, body));
@@ -561,17 +566,101 @@ function recalculateStudentTotals_(ss, studentId) {
 }
 
 function gradeQuestionOnServer_(ss, questionId, answer) {
-  // 1. Thưởng hoàn thành chặng học tập & toàn bài
-  if (questionId === 'STAGE_1' || questionId === 'STAGE_2' || questionId === 'STAGE_3') {
+  // 1. Thử thách Vận dụng 1 (Chọn 1 đáp án)
+  if (questionId === 'VD_Q1') {
+    var ok1 = normalize_(answer) === 'c' || normalize_(answer) === 'computer';
     return {
       found: true,
-      type: 'stage_completion',
-      isCorrect: true,
-      score: 20,
+      type: 'single_choice',
+      isCorrect: ok1,
+      score: ok1 ? 20 : 0,
       maxScore: 20,
-      explanation: 'Hoàn thành chặng học tập (+20 điểm).'
+      explanation: ok1
+        ? 'Chính xác! Computer là dữ liệu thuộc kiểu xâu kí tự.'
+        : 'Chưa chính xác! Hãy nhớ rằng kiểu xâu kí tự bao gồm kí tự hoặc chuỗi kí tự.'
     };
   }
+
+  // 2. Thử thách Vận dụng 2 (Chọn nhiều đáp án)
+  if (questionId === 'VD_Q2') {
+    var selected = Array.isArray(answer) ? answer.map(function(s) { return String(s).toUpperCase(); }) : [];
+    var correctArr = ['A', 'B', 'C'];
+    var cHits = 0;
+    var wHits = 0;
+    selected.forEach(function(item) {
+      if (correctArr.indexOf(item) !== -1) cHits++;
+      else wHits++;
+    });
+    var net = Math.max(0, cHits - wHits);
+    var score2 = Math.round((net / correctArr.length) * 20);
+    var isExact = cHits === correctArr.length && wHits === 0;
+    return {
+      found: true,
+      type: 'multi_choice',
+      isCorrect: isExact,
+      score: score2,
+      maxScore: 20,
+      explanation: isExact
+        ? 'Hoàn thành! AND, OR, NOT là ba phép toán logic trong Scratch.'
+        : 'Chưa chính xác! AND, OR, NOT là ba phép toán logic trong Scratch.'
+    };
+  }
+
+  // 3. Thử thách Vận dụng 3 (Kéo thả vào ô trống)
+  if (questionId === 'VD_Q3') {
+    var aObj = (typeof answer === 'object' && answer !== null) ? answer : {};
+    var b1 = normalize_(aObj.blank1) === 'thay đổi';
+    var b2 = normalize_(aObj.blank2) === 'không đổi';
+    var sc3 = (b1 ? 10 : 0) + (b2 ? 10 : 0);
+    return {
+      found: true,
+      type: 'drag_drop',
+      isCorrect: b1 && b2,
+      score: sc3,
+      maxScore: 20,
+      explanation: (b1 && b2)
+        ? 'Rất tốt! Biến có thể thay đổi giá trị, còn hằng không thay đổi trong quá trình chương trình thực hiện.'
+        : 'Hãy chú ý: Biến có thể thay đổi, còn Hằng là giá trị không đổi trong quá trình thực hiện.'
+    };
+  }
+
+  // 4. Thử thách Vận dụng 4 (Điền biểu thức)
+  if (questionId === 'VD_Q4') {
+    var clean = normalize_(answer).replace(/\s+/g, '').replace(':', '/');
+    var isRight = clean === '360/n' || clean === '(360/n)';
+    return {
+      found: true,
+      type: 'fill_blank',
+      isCorrect: isRight,
+      score: isRight ? 20 : 0,
+      maxScore: 20,
+      explanation: isRight
+        ? 'Chính xác! Biểu thức 360/n giúp xác định góc quay khi nhân vật vẽ hình có n cạnh.'
+        : 'Hãy thử lại! Để vẽ hình có n cạnh đều, góc quay được tính bằng 360 chia cho n.'
+    };
+  }
+
+  // 5. Thử thách Vận dụng 5 (Ghép đôi)
+  if (questionId === 'VD_Q5') {
+    var mObj = (typeof answer === 'object' && answer !== null) ? answer : {};
+    var m1 = normalize_(mObj['1']) === 'c' || normalize_(mObj['1']) === 'kiểu số';
+    var m2 = normalize_(mObj['2']) === 'a' || normalize_(mObj['2']) === 'kiểu xâu kí tự';
+    var m3 = normalize_(mObj['3']) === 'b' || normalize_(mObj['3']) === 'kiểu logic';
+    var hits = (m1 ? 1 : 0) + (m2 ? 1 : 0) + (m3 ? 1 : 0);
+    var fScore = hits === 3 ? 20 : Math.round((hits / 3) * 20);
+    return {
+      found: true,
+      type: 'matching',
+      isCorrect: hits === 3,
+      score: fScore,
+      maxScore: 20,
+      explanation: (hits === 3)
+        ? 'Xuất sắc! Bạn đã kết nối chính xác các phép toán với kiểu dữ liệu tương ứng.'
+        : 'Nhóm 1 (+, -, ×, /) -> Kiểu số (C); Nhóm 2 (JOIN) -> Kiểu xâu kí tự (A); Nhóm 3 (So sánh & Logic) -> Kiểu logic (B).'
+    };
+  }
+
+  // 6. Thưởng hoàn thành chặng học tập & toàn bài (tương thích ngược)
   if (questionId === 'LESSON_COMPLETE_BONUS') {
     return {
       found: true,
@@ -1070,11 +1159,59 @@ function getTeacherOverview_(ss) {
       total_score: totalSystemScore
     },
     students: students,
+    vanDungQuestions: getVanDungQuestions_(ss),
     groups: getGroups_(ss).groups,
     assignments: getAssignments_(ss).assignments,
     questionBank: getQuestionBank_(ss).questions,
     config: getAppConfig_(ss).config
   };
+}
+
+function getVanDungQuestions_(ss) {
+  var sheet = ss.getSheetByName(SHEET_NAMES.QUESTION_BANK);
+  var rows = sheet.getDataRange().getValues();
+  var vdRows = [];
+  for (var i = 1; i < rows.length; i++) {
+    var qId = String(rows[i][0]);
+    if (qId.indexOf('VD_Q') === 0) {
+      try {
+        var parsed = JSON.parse(rows[i][4]);
+        vdRows.push(parsed);
+      } catch (e) {}
+    }
+  }
+  return vdRows;
+}
+
+function saveVanDungQuestions_(ss, body) {
+  var questions = Array.isArray(body.questions) ? body.questions : [];
+  var sheet = ss.getSheetByName(SHEET_NAMES.QUESTION_BANK);
+  var now = new Date().toISOString();
+
+  // Xóa các dòng VD_Q cũ
+  var rows = sheet.getDataRange().getValues();
+  for (var i = rows.length - 1; i >= 1; i--) {
+    if (String(rows[i][0]).indexOf('VD_Q') === 0) {
+      sheet.deleteRow(i + 1);
+    }
+  }
+
+  // Thêm 5 câu mới
+  questions.forEach(function (q) {
+    sheet.appendRow([
+      String(q.id),
+      'VAN_DUNG',
+      String(q.prompt || ''),
+      String(q.type || 'single_choice'),
+      JSON.stringify(q),
+      typeof q.correctAnswer === 'string' ? q.correctAnswer : JSON.stringify(q.correctAnswer),
+      Number(q.points || 20),
+      String(q.explanationCorrect || ''),
+      now
+    ]);
+  });
+
+  return { ok: true, questions: questions };
 }
 
 function saveGroups_(ss, body) {

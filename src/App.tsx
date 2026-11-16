@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { CHALLENGE_QUESTIONS, DEFAULT_ASSIGNMENTS, DEFAULT_GROUPS, DEFAULT_TEAM_QUESTIONS } from './data/lessonData';
+import { DEFAULT_VAN_DUNG_QUESTIONS } from './data/lessonData';
 import {
   computeBadges,
   computeLessonProgress,
@@ -24,21 +24,17 @@ import {
   AttemptRecord,
   ConnectionMode,
   GradeFeedback,
-  GroupAssignment,
   StudentProfile,
-  TeamGroup,
-  TeamQuestion,
+  VanDungQuestion,
   ZoneId,
 } from './types';
-import { ChallengeZone } from './components/ChallengeZone';
 import { ConfettiBurst } from './components/ConfettiBurst';
 import { HomeScreen } from './components/HomeScreen';
 import { LeaderboardZone } from './components/LeaderboardZone';
-import { LearnZone } from './components/LearnZone';
-import { ReviewZone } from './components/ReviewZone';
 import { StudentLoginScreen } from './components/StudentLoginScreen';
+import { StudentProfileModal } from './components/StudentProfileModal';
 import { TeacherModal } from './components/TeacherModal';
-import { TeamZone } from './components/TeamZone';
+import { VanDungZone } from './components/VanDungZone';
 
 export default function App() {
   const [student, setStudent] = useState<StudentProfile | null>(() => loadLocalStudent());
@@ -47,18 +43,17 @@ export default function App() {
   const [connectionMode, setConnectionMode] = useState<ConnectionMode>(() => getConnectionMode());
   const [confettiTrigger, setConfettiTrigger] = useState(0);
   const [teacherModalOpen, setTeacherModalOpen] = useState(false);
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
 
   const [appConfig, setAppConfig] = useState<AppConfig>(DEFAULT_CONFIG);
-  const [groups, setGroups] = useState<TeamGroup[]>(DEFAULT_GROUPS);
-  const [assignments, setAssignments] = useState<GroupAssignment[]>(DEFAULT_ASSIGNMENTS);
-  const [teamQuestions, setTeamQuestions] = useState<TeamQuestion[]>(DEFAULT_TEAM_QUESTIONS);
+  const [vanDungQuestions, setVanDungQuestions] = useState<VanDungQuestion[]>(DEFAULT_VAN_DUNG_QUESTIONS);
 
   useEffect(() => {
     fetchInitialSharedData().then((shared) => {
       setAppConfig(shared.config);
-      setGroups(shared.groups);
-      setAssignments(shared.assignments);
-      setTeamQuestions(shared.questionBank);
+      if (shared.vanDungQuestions && shared.vanDungQuestions.length > 0) {
+        setVanDungQuestions(shared.vanDungQuestions);
+      }
       setConnectionMode(getConnectionMode());
     });
   }, []);
@@ -86,50 +81,10 @@ export default function App() {
     setStudent(null);
     setAttempts([]);
     setActiveZone('home');
+    setProfileModalOpen(false);
   };
 
-  const checkLessonCompletionBonus = async (
-    currentStudent: StudentProfile,
-    currentAttempts: AttemptRecord[]
-  ) => {
-    const passedIds = new Set(currentAttempts.filter((a) => a.is_correct).map((a) => a.question_id));
-    if (passedIds.has('LESSON_COMPLETE_BONUS')) return;
-    const allStages = ['STAGE_1', 'STAGE_2', 'STAGE_3'].every((id) => passedIds.has(id));
-    const allChallenges = CHALLENGE_QUESTIONS.every((q) => passedIds.has(q.id));
-    if (allStages && allChallenges) {
-      const bonusRes = await submitAnswer({
-        student: currentStudent,
-        question_id: 'LESSON_COMPLETE_BONUS',
-        question_type: 'lesson_bonus',
-        answer: 'completed',
-        duration: 1,
-        teamQuestions,
-      });
-      setStudent(bonusRes.updatedStudent);
-      setAttempts(bonusRes.attempts);
-      setConfettiTrigger((c) => c + 1);
-    }
-  };
-
-  const handleCompleteStage = async (stageId: 'STAGE_1' | 'STAGE_2' | 'STAGE_3') => {
-    if (!student) return;
-    const res = await submitAnswer({
-      student,
-      question_id: stageId,
-      question_type: 'stage_completion',
-      answer: 'completed',
-      duration: 1,
-      teamQuestions,
-    });
-    setStudent(res.updatedStudent);
-    setAttempts(res.attempts);
-    if (res.feedback.awarded_delta > 0) {
-      setConfettiTrigger((c) => c + 1);
-    }
-    await checkLessonCompletionBonus(res.updatedStudent, res.attempts);
-  };
-
-  const handleSubmitChallenge = async (params: {
+  const handleSubmitAnswer = async (params: {
     question_id: string;
     question_type: string;
     answer: unknown;
@@ -141,22 +96,21 @@ export default function App() {
         is_correct: false,
         score: 0,
         awarded_delta: 0,
-        max_score: 0,
-        explanation: '',
+        max_score: 20,
+        explanation: 'Chưa đăng nhập học sinh.',
         error: 'Chưa đăng nhập học sinh.',
       };
     }
     const res = await submitAnswer({
       student,
       ...params,
-      teamQuestions,
+      customQuestions: vanDungQuestions,
     });
     setStudent(res.updatedStudent);
     setAttempts(res.attempts);
     if (res.feedback.is_correct && res.feedback.awarded_delta > 0) {
       setConfettiTrigger((c) => c + 1);
     }
-    await checkLessonCompletionBonus(res.updatedStudent, res.attempts);
     return res.feedback;
   };
 
@@ -182,41 +136,39 @@ export default function App() {
           progressPercent={progressPercent}
           appConfig={appConfig}
           connectionMode={connectionMode}
+          questions={vanDungQuestions}
           onSelectZone={(z) => setActiveZone(z)}
           onOpenTeacher={() => setTeacherModalOpen(true)}
+          onOpenProfile={() => setProfileModalOpen(true)}
           onSwitchStudent={handleSwitchStudent}
         />
-      ) : activeZone === 'learn' ? (
-        <LearnZone
+      ) : activeZone === 'vandung' ? (
+        <VanDungZone
           student={student}
           attempts={attempts}
+          questions={vanDungQuestions}
           onBack={() => setActiveZone('home')}
-          onCompleteStage={handleCompleteStage}
+          onGoToLeaderboard={() => setActiveZone('leaderboard')}
+          onOpenProfile={() => setProfileModalOpen(true)}
+          onSubmitAnswer={handleSubmitAnswer}
         />
-      ) : activeZone === 'review' ? (
-        <ReviewZone student={student} onBack={() => setActiveZone('home')} />
-      ) : activeZone === 'challenge' ? (
-        <ChallengeZone
-          student={student}
-          attempts={attempts}
-          onBack={() => setActiveZone('home')}
-          onSubmitChallenge={handleSubmitChallenge}
-        />
-      ) : activeZone === 'leaderboard' ? (
+      ) : (
         <LeaderboardZone
           student={student}
           connectionMode={connectionMode}
           onBack={() => setActiveZone('home')}
         />
-      ) : (
-        <TeamZone
+      )}
+
+      {student && (
+        <StudentProfileModal
+          isOpen={profileModalOpen}
+          onClose={() => setProfileModalOpen(false)}
           student={student}
           attempts={attempts}
-          groups={groups}
-          assignments={assignments}
-          teamQuestions={teamQuestions}
-          onBack={() => setActiveZone('home')}
-          onSubmitTeamAnswer={handleSubmitChallenge}
+          badges={badges}
+          questions={vanDungQuestions}
+          onSwitchStudent={handleSwitchStudent}
         />
       )}
 
@@ -228,9 +180,7 @@ export default function App() {
         }}
         onSharedDataUpdated={(data) => {
           setAppConfig(data.config);
-          setGroups(data.groups);
-          setAssignments(data.assignments);
-          setTeamQuestions(data.questionBank);
+          setVanDungQuestions(data.vanDungQuestions);
           setConnectionMode(getConnectionMode());
         }}
       />

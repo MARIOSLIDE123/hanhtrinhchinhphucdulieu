@@ -69,21 +69,30 @@ VITE_GAS_WEBAPP_URL="https://script.google.com/macros/s/AKfycb.../exec"
 
 ---
 
-## 5. Hướng dẫn kiểm tra đăng nhập, chấm điểm và bảng xếp hạng
+## 5. Hướng dẫn kiểm tra đăng nhập, 5 thử thách Vận dụng và bảng xếp hạng
 
 1. **Đăng nhập học sinh**: Nhập Họ và tên, Trường, Lớp ➔ nhấn `BẮT ĐẦU HÀNH TRÌNH`. Mở sheet `STUDENTS` để kiểm tra dòng dữ liệu vừa được ghi với `student_id` duy nhất. Thử tải lại trang (`F5`): học sinh được tự động đăng nhập lại và **không** tạo bản ghi trùng lặp.
-2. **Chấm điểm phía máy chủ**: Vào **Khu vực 3 – Thử thách SGK**, trả lời một câu hỏi. Hệ thống gửi `question_id` và đáp án lên `Code.gs`; `Code.gs` tự đối chiếu đáp án đúng và cộng điểm vào `ATTEMPTS` và `STUDENTS`. Thử nộp lại câu hỏi đã làm đúng: tổng điểm không bị cộng trùng.
-3. **Bảng xếp hạng**: Vào **Khu vực 4 – Đấu trường dữ liệu**, kiểm tra thứ hạng TOP 10 / TOP 50 / Vị trí của tôi. Trên bảng công khai chỉ hiển thị tên rút gọn (`display_name`); tên đầy đủ nằm trong `STUDENTS` và bảng điều khiển giáo viên. Bảng tự động làm mới mỗi 20 giây hoặc khi bấm **Làm mới**.
+2. **Khu vực trung tâm: VẬN DỤNG – CHINH PHỤC 5 THỬ THÁCH (Thang điểm 100)**:
+   - **Thử thách 1 (Chọn 1 - 20đ)**: Nhận diện xâu kí tự `Computer`.
+   - **Thử thách 2 (Chọn nhiều - 20đ)**: Chọn cả 3 phép toán logic AND, OR, NOT.
+   - **Thử thách 3 (Kéo thả - 20đ)**: Kéo thẻ `THAY ĐỔI` vào ô Biến và `KHÔNG ĐỔI` vào ô Hằng.
+   - **Thử thách 4 (Điền ô - 20đ)**: Điền biểu thức góc quay `360/n`.
+   - **Thử thách 5 (Ghép đôi - 20đ)**: Nối 3 nhóm phép toán với kiểu dữ liệu tương ứng (1-C, 2-A, 3-B).
+   - Hệ thống tự động chấm điểm phía máy chủ và lưu vào `ATTEMPTS` và `STUDENTS`. Nếu học sinh luyện tập lại, hệ thống sẽ lưu điểm cao nhất của từng câu mà không cộng dồn trùng lặp.
+3. **Bảng xếp hạng**: Vào **Bảng xếp hạng toàn quốc**, kiểm tra thứ hạng TOP 10 / TOP 50 / Vị trí của tôi. Bảng tự động làm mới mỗi 20 giây hoặc khi bấm **Làm mới dữ liệu**.
 
 ---
 
-## 6. Hướng dẫn thay đổi mật khẩu giáo viên và cấu hình nhóm
+## 6. Hướng dẫn quản trị giáo viên & 5 câu hỏi Vận dụng
 
-1. **Đổi mật khẩu giáo viên**:
-   - Mật khẩu mặc định lưu tại `PropertiesService` trên Apps Script là `2026` (hoàn toàn không lưu trong mã frontend).
-   - Sau khi đăng nhập khu vực Giáo viên, vào tab **Quản lý dữ liệu & Cài đặt** ➔ mục **Đổi mật khẩu giáo viên** ➔ nhập mật khẩu mới và lưu.
-   - Hoặc giáo viên có thể sửa trực tiếp trong Apps Script: **Cài đặt dự án (Project Settings) ➔ Thuộc tính tập lệnh (Script Properties) ➔ `TEACHER_PASSWORD`**.
-2. **Cấu hình nhóm & nhiệm vụ**:
-   - Vào tab **Quản lý Nhóm** để tạo/sửa/xóa nhóm, thêm hoặc chuyển học sinh giữa 4 nhóm.
-   - Vào tab **Quản lý Nhiệm vụ** để chỉnh sửa 2 nhiệm vụ mẫu hoặc tạo nhiệm vụ mới.
-   - Vào tab **Quản lý Câu hỏi Nhiệm vụ** để thêm/sửa/xóa câu hỏi hiển thị trực tiếp ở khu vực **Nhiệm vụ đồng đội** của học sinh.
+1. **Đăng nhập giáo viên**:
+   - Nhấn biểu tượng bánh răng ⚙️ ở góc trên bên phải.
+   - Mật khẩu mặc định lưu tại `PropertiesService` trên Apps Script là `2026` (hoàn toàn bảo mật tại backend).
+2. **Quản lý 5 câu hỏi Vận dụng**:
+   - Vào tab **Quản lý 5 Câu hỏi Vận dụng** để xem, chỉnh sửa nội dung câu hỏi, đáp án đúng, lời giải thích và điểm số.
+   - Hình thức tương tác được cố định đúng chuẩn sư phạm (Câu 1: chọn 1; Câu 2: chọn nhiều; Câu 3: kéo thả; Câu 4: điền ô trống; Câu 5: ghép đôi).
+   - Nhấn **Lưu & Cập nhật 5 câu hỏi** để đồng bộ lên Google Sheets, hoặc nhấn **Khôi phục mặc định SGK** để trở về nội dung chuẩn ban đầu.
+3. **Báo cáo dữ liệu & Danh sách học sinh**:
+   - Xem toàn bộ học sinh tham gia, điểm số 5 câu, thời gian làm bài và bấm **Xuất file Excel/CSV** để tải báo cáo về máy tính.
+4. **Đổi mật khẩu giáo viên**:
+   - Vào tab **Cài đặt lớp & Đổi mật khẩu** ➔ nhập mật khẩu cũ và mật khẩu mới ➔ lưu. Hoặc sửa trực tiếp trong Apps Script: **Cài đặt dự án ➔ Thuộc tính tập lệnh ➔ `TEACHER_PASSWORD`**.

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
-import { ArrowRight, Bot, Cloud, CloudOff, Settings, Sparkles } from 'lucide-react';
-import { ASSET_PATHS } from '../data/lessonData';
+import { ArrowRight, Cloud, CloudOff, Settings, Sparkles } from 'lucide-react';
 import { AppConfig, ConnectionMode } from '../types';
+import { ScratchCatAvatar } from './ScratchCatGuide';
 
 interface StudentLoginScreenProps {
   appConfig: AppConfig;
@@ -121,27 +121,19 @@ export function StudentLoginScreen({
         </div>
 
         <div className="grid items-stretch overflow-hidden rounded-[2rem] border border-[#2389D8]/15 bg-white card-3d md:grid-cols-12">
-          {/* Left: 3D Robot Character Showcase */}
-          <div className="flex flex-col items-center justify-center bg-gradient-to-br from-[#EAF4FF] via-[#F4F9FF] to-[#E6FAF6] p-8 md:col-span-5">
-            <div className="relative h-52 w-52 overflow-hidden rounded-[2rem] border-4 border-white bg-white shadow-lg sm:h-60 sm:w-60">
-              <img
-                src={ASSET_PATHS.robot}
-                alt="Robot DataBot chào mừng học sinh"
-                referrerPolicy="no-referrer"
-                className="h-full w-full object-cover"
-              />
-              <div className="absolute inset-0 -z-10 flex items-center justify-center bg-[#2389D8]/10 text-[#2389D8]">
-                <Bot className="h-20 w-20" />
-              </div>
+          {/* Left: Scratch Cat Mascot Showcase */}
+          <div className="flex flex-col items-center justify-center bg-gradient-to-br from-[#EAF4FF] via-[#F4F9FF] to-[#FFF3E0] p-8 md:col-span-5 text-center">
+            <div className="relative mb-2">
+              <ScratchCatAvatar mood="happy" size={130} className="shadow-lg" />
             </div>
 
-            <div className="mt-6 rounded-2xl border border-[#2389D8]/20 bg-white/90 px-4 py-3 text-center">
-              <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-[#2389D8]">
+            <div className="mt-5 rounded-2xl border border-[#FF9850]/20 bg-white/95 px-4 py-3 text-center shadow-xs">
+              <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-[#D96B00]">
                 <Sparkles className="h-3.5 w-3.5" />
-                <span>Trợ lý DataBot</span>
+                <span>Mèo Scratch đồng hành</span>
               </div>
-              <p className="mt-1 text-sm font-medium text-slate-700">
-                Nhập thông tin của bạn để mở khóa bản đồ kiến thức, phòng thí nghiệm Scratch và bảng xếp hạng toàn quốc!
+              <p className="mt-1 text-xs sm:text-sm font-medium text-slate-700 leading-relaxed">
+                Nhập thông tin của bạn để bắt đầu hành trình Vận dụng – Chinh phục 5 thử thách và ghi danh trên bảng xếp hạng toàn quốc!
               </p>
             </div>
           </div>

@@ -1,48 +1,47 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import {
+  Award,
+  BarChart2,
   CheckCircle2,
   ClipboardCopy,
   Cloud,
   Database,
   Download,
-  FileSpreadsheet,
+  Eye,
+  FileText,
   KeyRound,
   Lock,
-  Plus,
+  RotateCcw,
   Save,
-  Trash2,
+  Search,
+  Settings,
+  Sparkles,
+  Star,
   Users,
   X,
+  XCircle,
 } from 'lucide-react';
 import {
   changeTeacherPasswordRemote,
   fetchTeacherOverview,
   getStoredGasUrl,
   saveTeacherAppConfig,
-  saveTeacherAssignment,
-  saveTeacherGroups,
-  saveTeacherQuestionBank,
+  saveTeacherVanDungQuestions,
+  teacherLoginRemote,
 } from '../services/apiService';
-import {
-  AppConfig,
-  GroupAssignment,
-  StudentProfile,
-  TeamGroup,
-  TeamQuestion,
-} from '../types';
+import { DEFAULT_VAN_DUNG_QUESTIONS } from '../data/lessonData';
+import { AppConfig, StudentProfile, VanDungQuestion } from '../types';
 
 interface TeacherModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSharedDataUpdated: (data: {
     config: AppConfig;
-    groups: TeamGroup[];
-    assignments: GroupAssignment[];
-    questionBank: TeamQuestion[];
+    vanDungQuestions: VanDungQuestion[];
   }) => void;
 }
 
-type TeacherTab = 'groups' | 'assignments' | 'questions' | 'data';
+type TeacherTab = 'questions' | 'students' | 'settings';
 
 export function TeacherModal({ isOpen, onClose, onSharedDataUpdated }: TeacherModalProps) {
   const [passwordInput, setPasswordInput] = useState('');
@@ -50,13 +49,11 @@ export function TeacherModal({ isOpen, onClose, onSharedDataUpdated }: TeacherMo
   const [loggingIn, setLoggingIn] = useState(false);
 
   const [teacherToken, setTeacherToken] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TeacherTab>('groups');
+  const [activeTab, setActiveTab] = useState<TeacherTab>('questions');
 
   // Dashboard states
   const [students, setStudents] = useState<StudentProfile[]>([]);
-  const [groups, setGroups] = useState<TeamGroup[]>([]);
-  const [assignments, setAssignments] = useState<GroupAssignment[]>([]);
-  const [questionBank, setQuestionBank] = useState<TeamQuestion[]>([]);
+  const [vanDungQuestions, setVanDungQuestions] = useState<VanDungQuestion[]>(DEFAULT_VAN_DUNG_QUESTIONS);
   const [config, setConfig] = useState<AppConfig>({
     grade_level: 'Tin học 7',
     subject_name: 'Tin học',
@@ -66,12 +63,12 @@ export function TeacherModal({ isOpen, onClose, onSharedDataUpdated }: TeacherMo
   const [toast, setToast] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Forms inside tabs
-  const [newGroupName, setNewGroupName] = useState('');
-  const [editingAsm, setEditingAsm] = useState<GroupAssignment | null>(null);
-  const [editingQ, setEditingQ] = useState<TeamQuestion | null>(null);
+  // Chọn câu hỏi để chỉnh sửa (0 -> 4)
+  const [editingIndex, setEditingIndex] = useState<number>(0);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [studentSearch, setStudentSearch] = useState('');
 
-  // Change password form
+  // Form đổi mật khẩu
   const [oldPw, setOldPw] = useState('');
   const [newPw, setNewPw] = useState('');
 
@@ -85,32 +82,20 @@ export function TeacherModal({ isOpen, onClose, onSharedDataUpdated }: TeacherMo
   const loadDashboard = async (token: string) => {
     const overview = await fetchTeacherOverview(token);
     setStudents(overview.students);
-    setGroups(overview.groups);
-    setAssignments(overview.assignments);
-    setQuestionBank(overview.questionBank);
+    setVanDungQuestions(overview.vanDungQuestions);
     setConfig(overview.config);
     setStats(overview.stats);
     onSharedDataUpdated({
       config: overview.config,
-      groups: overview.groups,
-      assignments: overview.assignments,
-      questionBank: overview.questionBank,
+      vanDungQuestions: overview.vanDungQuestions,
     });
   };
 
   const handleTeacherLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
-    const currentUrl = getStoredGasUrl();
-    if (!currentUrl) {
-      setLoginError(
-        'Chưa cấu hình URL Google Apps Script trong mã nguồn (HARDCODED_GAS_URL trong file src/services/apiService.ts). Bạn có thể chọn "Xem trước & cấu hình Offline" bên dưới.'
-      );
-      return;
-    }
     setLoggingIn(true);
     try {
-      const { teacherLoginRemote } = await import('../services/apiService');
       const res = await teacherLoginRemote(passwordInput);
       if (!res.ok || !res.token) {
         setLoginError(res.error || 'Mật khẩu không chính xác.');
@@ -129,164 +114,50 @@ export function TeacherModal({ isOpen, onClose, onSharedDataUpdated }: TeacherMo
     await loadDashboard('OFFLINE_PREVIEW');
   };
 
-  /* -------------------- TAB 1: GROUP MANAGEMENT -------------------- */
-  const handleAddGroup = () => {
-    const name = newGroupName.trim();
-    if (!name) return;
-    const next = [
-      ...groups,
-      {
-        group_id: `G${groups.length + 1}_${Date.now().toString(36).toUpperCase()}`,
-        group_name: name,
-        members: [],
-        group_score: 0,
-      },
-    ];
-    setGroups(next);
-    setNewGroupName('');
-  };
-
-  const handleRenameGroup = (groupId: string, name: string) => {
-    setGroups((prev) => prev.map((g) => (g.group_id === groupId ? { ...g, group_name: name } : g)));
-  };
-
-  const handleDeleteGroup = (groupId: string) => {
-    setGroups((prev) => prev.filter((g) => g.group_id !== groupId));
-  };
-
-  const handleMoveStudentToGroup = (studentObj: StudentProfile, targetGroupId: string) => {
-    setGroups((prev) =>
-      prev.map((g) => {
-        const filtered = g.members.filter((m) => m.student_id !== studentObj.student_id);
-        if (g.group_id === targetGroupId) {
-          const nextMembers = [
-            ...filtered,
-            {
-              student_id: studentObj.student_id,
-              display_name: studentObj.display_name,
-              school: studentObj.school,
-              class_name: studentObj.class_name,
-              total_score: studentObj.total_score,
-            },
-          ];
-          return {
-            ...g,
-            members: nextMembers,
-            group_score: nextMembers.reduce((sum, m) => sum + m.total_score, 0),
-          };
-        }
-        return {
-          ...g,
-          members: filtered,
-          group_score: filtered.reduce((sum, m) => sum + m.total_score, 0),
-        };
-      })
+  // Cập nhật trường dữ liệu của câu hỏi đang sửa
+  const handleUpdateCurrentQuestion = (field: keyof VanDungQuestion, value: unknown) => {
+    setVanDungQuestions((prev) =>
+      prev.map((q, idx) => (idx === editingIndex ? { ...q, [field]: value } : q))
     );
   };
 
-  const handleSaveGroups = async () => {
+  // Lưu 5 câu hỏi vận dụng
+  const handleSaveQuestions = async () => {
     if (!teacherToken) return;
     setSaving(true);
     try {
-      const saved = await saveTeacherGroups(teacherToken, groups);
-      setGroups(saved);
-      onSharedDataUpdated({ config, groups: saved, assignments, questionBank });
-      showToast('Đã lưu cấu hình nhóm thành công!');
+      const updated = await saveTeacherVanDungQuestions(teacherToken, vanDungQuestions);
+      setVanDungQuestions(updated);
+      onSharedDataUpdated({ config, vanDungQuestions: updated });
+      showToast('Đã lưu thành công 5 câu hỏi Vận dụng lên hệ thống!');
     } finally {
       setSaving(false);
     }
   };
 
-  /* -------------------- TAB 2: ASSIGNMENT MANAGEMENT -------------------- */
-  const handleSaveAssignment = async () => {
-    if (!teacherToken || !editingAsm) return;
-    setSaving(true);
-    try {
-      const saved = await saveTeacherAssignment(teacherToken, editingAsm);
-      setAssignments(saved);
-      setEditingAsm(null);
-      onSharedDataUpdated({ config, groups, assignments: saved, questionBank });
-      showToast('Đã lưu nhiệm vụ nhóm!');
-    } finally {
-      setSaving(false);
+  // Khôi phục nội dung 5 câu hỏi mặc định theo SGK
+  const handleResetDefaultQuestions = () => {
+    if (window.confirm('Bạn có chắc chắn muốn khôi phục 5 câu hỏi Vận dụng về nội dung mặc định của SGK?')) {
+      setVanDungQuestions(DEFAULT_VAN_DUNG_QUESTIONS);
+      showToast('Đã khôi phục nội dung 5 câu hỏi mặc định!');
     }
   };
 
-  /* -------------------- TAB 3: QUESTION BANK MANAGEMENT -------------------- */
-  const handleSaveQuestionItem = async () => {
-    if (!teacherToken || !editingQ) return;
-    setSaving(true);
-    try {
-      const exists = questionBank.some((q) => q.question_id === editingQ.question_id);
-      const next = exists
-        ? questionBank.map((q) => (q.question_id === editingQ.question_id ? editingQ : q))
-        : [...questionBank, editingQ];
-      const saved = await saveTeacherQuestionBank(teacherToken, next);
-      setQuestionBank(saved);
-      setEditingQ(null);
-      onSharedDataUpdated({ config, groups, assignments, questionBank: saved });
-      showToast('Đã cập nhật ngân hàng câu hỏi nhiệm vụ!');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDeleteQuestion = async (qId: string) => {
-    if (!teacherToken) return;
-    setSaving(true);
-    try {
-      const next = questionBank.filter((q) => q.question_id !== qId);
-      const saved = await saveTeacherQuestionBank(teacherToken, next);
-      setQuestionBank(saved);
-      onSharedDataUpdated({ config, groups, assignments, questionBank: saved });
-      showToast('Đã xóa câu hỏi.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  /* -------------------- TAB 4: DATA, CONFIG, CSV & PASSWORD -------------------- */
+  // Lưu cấu hình tên bài học / khối lớp
   const handleSaveConfig = async () => {
     if (!teacherToken) return;
     setSaving(true);
     try {
-      const saved = await saveTeacherAppConfig(teacherToken, config);
-      setConfig(saved);
-      onSharedDataUpdated({ config: saved, groups, assignments, questionBank });
-      showToast('Đã lưu cấu hình môn học / khối lớp!');
+      const updated = await saveTeacherAppConfig(teacherToken, config);
+      setConfig(updated);
+      onSharedDataUpdated({ config: updated, vanDungQuestions });
+      showToast('Đã lưu cấu hình bài học thành công!');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleExportCsv = () => {
-    const header = ['Student ID', 'Họ và tên', 'Tên hiển thị', 'Trường', 'Lớp', 'Tổng điểm', 'Số câu đúng', 'Số lượt nộp'];
-    const rows = students.map((s) => [
-      s.student_id,
-      `"${s.full_name.replace(/"/g, '""')}"`,
-      `"${s.display_name.replace(/"/g, '""')}"`,
-      `"${s.school.replace(/"/g, '""')}"`,
-      `"${s.class_name.replace(/"/g, '""')}"`,
-      s.total_score,
-      s.total_correct,
-      s.total_attempts,
-    ]);
-    const csvContent = '\uFEFF' + [header.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `DATA_ADVENTURE_BaoCao_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleCopyShareLink = async () => {
-    const share = new URL(window.location.href.split('?')[0]);
-    await navigator.clipboard.writeText(share.toString());
-    showToast('Đã sao chép link lớp học cho học sinh!');
-  };
-
+  // Đổi mật khẩu
   const handleChangePassword = async () => {
     if (!teacherToken) return;
     const res = await changeTeacherPasswordRemote(teacherToken, oldPw, newPw);
@@ -300,14 +171,53 @@ export function TeacherModal({ isOpen, onClose, onSharedDataUpdated }: TeacherMo
     }
   };
 
+  // Sao chép link chia sẻ học sinh
+  const handleCopyShareLink = async () => {
+    const share = new URL(window.location.href.split('?')[0]);
+    await navigator.clipboard.writeText(share.toString());
+    showToast('Đã sao chép link lớp học cho học sinh!');
+  };
+
+  // Xuất file CSV báo cáo điểm
+  const handleExportCsv = () => {
+    const header = ['STT', 'Mã HS', 'Họ và tên', 'Trường', 'Lớp', 'Tổng điểm (100)', 'Số câu đúng (5)', 'Lần làm bài', 'Hoạt động cuối'];
+    const rows = students.map((s, idx) => [
+      idx + 1,
+      `"${s.student_id}"`,
+      `"${s.full_name}"`,
+      `"${s.school}"`,
+      `"${s.class_name}"`,
+      s.total_score,
+      s.total_correct,
+      s.total_attempts,
+      `"${s.last_active}"`,
+    ]);
+    const csvContent = '\uFEFF' + [header.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `DATA_ADVENTURE_BaoCao_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const currentEditingQ = vanDungQuestions[editingIndex] || vanDungQuestions[0];
+  const filteredStudents = students.filter(
+    (s) =>
+      s.full_name.toLowerCase().includes(studentSearch.toLowerCase()) ||
+      s.school.toLowerCase().includes(studentSearch.toLowerCase()) ||
+      s.class_name.toLowerCase().includes(studentSearch.toLowerCase())
+  );
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-3 backdrop-blur-xs sm:p-6">
-      <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
-        {/* Modal Header */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-3 sm:p-6 backdrop-blur-xs">
+      <div className="flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+        {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <div>
             <h2 className="text-lg font-extrabold text-slate-900">
-              Khu vực Giáo viên · Quản trị & Kết nối Google Sheets
+              Khu Vực Giáo Viên · Quản Trị & Cấu Hình Vận Dụng
             </h2>
             <p className="text-xs text-slate-500">
               {getStoredGasUrl()
@@ -318,7 +228,7 @@ export function TeacherModal({ isOpen, onClose, onSharedDataUpdated }: TeacherMo
           <button
             type="button"
             onClick={onClose}
-            aria-label="Đóng cửa sổ giáo viên"
+            aria-label="Đóng"
             className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50"
           >
             <X className="h-5 w-5" />
@@ -335,33 +245,16 @@ export function TeacherModal({ isOpen, onClose, onSharedDataUpdated }: TeacherMo
           )}
 
           {!teacherToken ? (
-            <div className="mx-auto max-w-xl space-y-6">
-              {/* Teacher Login Form (Verified Server-Side at Apps Script!) */}
-              <form onSubmit={handleTeacherLogin} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xs">
+            /* ==================== MÀN HÌNH ĐĂNG NHẬP GIÁO VIÊN ==================== */
+            <div className="mx-auto max-w-md space-y-6 pt-6">
+              <form onSubmit={handleTeacherLogin} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                 <div className="flex items-center gap-2 text-base font-extrabold text-slate-900">
                   <Lock className="h-5 w-5 text-[#FF9850]" />
                   <span>Đăng nhập Quản trị Giáo viên</span>
                 </div>
                 <p className="mt-1 text-xs text-slate-500">
-                  Mật khẩu được xác thực trực tiếp và an toàn tại Google Apps Script (PropertiesService).
+                  Mật khẩu được xác thực trực tiếp và an toàn tại Google Apps Script.
                 </p>
-
-                {getStoredGasUrl() ? (
-                  <div className="mt-4 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs font-bold text-emerald-800">
-                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
-                    <span>Hệ thống đã kết nối trực tiếp với Google Sheets</span>
-                  </div>
-                ) : (
-                  <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-xs text-amber-800">
-                    <div className="flex items-center gap-2 font-bold text-amber-900">
-                      <Cloud className="h-4 w-4 shrink-0 text-amber-600" />
-                      <span>Chưa gắn URL Web App vào mã nguồn</span>
-                    </div>
-                    <p className="mt-1 text-slate-600">
-                      Dán link Web App vào hằng số <code className="font-mono font-bold text-slate-800">HARDCODED_GAS_URL</code> trong file <code className="font-mono font-bold text-slate-800">src/services/apiService.ts</code>.
-                    </p>
-                  </div>
-                )}
 
                 <div className="mt-4">
                   <label htmlFor="teacher-password" className="block text-xs font-bold text-slate-700">
@@ -372,8 +265,8 @@ export function TeacherModal({ isOpen, onClose, onSharedDataUpdated }: TeacherMo
                     type="password"
                     value={passwordInput}
                     onChange={(e) => setPasswordInput(e.target.value)}
-                    placeholder="Nhập mật khẩu giáo viên (mặc định: 2026)..."
-                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm"
+                    placeholder="Nhập mật khẩu (mặc định: 2026)..."
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-mono focus:border-[#2389D8] focus:outline-none"
                   />
                 </div>
 
@@ -385,7 +278,7 @@ export function TeacherModal({ isOpen, onClose, onSharedDataUpdated }: TeacherMo
                     disabled={loggingIn}
                     className="btn-3d rounded-xl bg-[#2389D8] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#1E7BC4] disabled:opacity-60"
                   >
-                    {loggingIn ? 'Đang xác thực...' : 'Đăng nhập quản trị'}
+                    {loggingIn ? 'Đang xác thực...' : 'Đăng nhập'}
                   </button>
 
                   <button
@@ -393,33 +286,33 @@ export function TeacherModal({ isOpen, onClose, onSharedDataUpdated }: TeacherMo
                     onClick={handleOfflinePreview}
                     className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
                   >
-                    Xem trước & cấu hình Offline
+                    Xem trước Offline
                   </button>
                 </div>
               </form>
             </div>
           ) : (
+            /* ==================== TABS QUẢN TRỊ ==================== */
             <div>
-              {/* Admin Tabs */}
+              {/* Tabs Bar */}
               <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-2">
                   {[
-                    { id: 'groups' as const, label: '1. Quản lý Nhóm', Icon: Users },
-                    { id: 'assignments' as const, label: '2. Quản lý Nhiệm vụ', Icon: FileSpreadsheet },
-                    { id: 'questions' as const, label: '3. Câu hỏi Nhiệm vụ nhóm', Icon: Plus },
-                    { id: 'data' as const, label: '4. Dữ liệu & Cài đặt', Icon: Database },
+                    { id: 'questions' as const, label: '1. Quản lý 5 Câu hỏi Vận dụng', Icon: FileText },
+                    { id: 'students' as const, label: '2. Báo cáo & Danh sách Học sinh', Icon: BarChart2 },
+                    { id: 'settings' as const, label: '3. Cài đặt lớp & Đổi mật khẩu', Icon: Settings },
                   ].map((t) => (
                     <button
                       key={t.id}
                       type="button"
                       onClick={() => setActiveTab(t.id)}
-                      className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-colors ${
+                      className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-colors ${
                         activeTab === t.id
-                          ? 'bg-[#2389D8] text-white'
-                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                          ? 'bg-[#2389D8] text-white shadow-xs'
+                          : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                       }`}
                     >
-                      <t.Icon className="h-3.5 w-3.5" />
+                      <t.Icon className="h-4 w-4" />
                       <span>{t.label}</span>
                     </button>
                   ))}
@@ -427,585 +320,539 @@ export function TeacherModal({ isOpen, onClose, onSharedDataUpdated }: TeacherMo
 
                 <button
                   type="button"
-                  onClick={() => loadDashboard(teacherToken)}
-                  className="text-xs font-bold text-[#2389D8] hover:underline"
+                  onClick={() => setTeacherToken(null)}
+                  className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-500 hover:bg-slate-50"
                 >
-                  Tải lại dữ liệu từ máy chủ
+                  Đăng xuất
                 </button>
               </div>
 
-              {/* TAB 1: GROUPS */}
-              {activeTab === 'groups' && (
+              {/* TAB 1: QUẢN LÝ 5 CÂU HỎI VẬN DỤNG */}
+              {activeTab === 'questions' && (
                 <div className="space-y-6">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex flex-1 items-center gap-2">
-                      <input
-                        type="text"
-                        value={newGroupName}
-                        onChange={(e) => setNewGroupName(e.target.value)}
-                        placeholder="Tên nhóm mới (ví dụ: NHÓM 5 – SIÊU NHÂN DỮ LIỆU)"
-                        className="w-full max-w-md rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                      />
+                  {/* Top Bar Actions */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-blue-100 bg-[#F0F8FF] p-4">
+                    <div>
+                      <h3 className="text-sm font-extrabold text-slate-900">
+                        Cấu hình cố định đúng 5 thử thách Vận dụng
+                      </h3>
+                      <p className="text-xs text-slate-600">
+                        Hình thức tương tác được cố định: Câu 1 (Chọn 1), Câu 2 (Chọn nhiều), Câu 3 (Kéo thả), Câu 4 (Điền ô), Câu 5 (Ghép đôi).
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        onClick={handleAddGroup}
-                        className="flex items-center gap-1 rounded-xl bg-[#38C9B1] px-4 py-2 text-xs font-bold text-white"
+                        onClick={handleResetDefaultQuestions}
+                        className="flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
                       >
-                        <Plus className="h-4 w-4" />
-                        <span>Thêm nhóm</span>
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        <span>Khôi phục mặc định SGK</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={handleSaveQuestions}
+                        className="btn-3d flex items-center gap-1.5 rounded-xl bg-[#2389D8] px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-[#1E7BC4]"
+                      >
+                        <Save className="h-3.5 w-3.5" />
+                        <span>{saving ? 'Đang lưu...' : 'Lưu & Cập nhật 5 câu hỏi'}</span>
                       </button>
                     </div>
-                    <button
-                      type="button"
-                      disabled={saving}
-                      onClick={handleSaveGroups}
-                      className="flex items-center gap-1.5 rounded-xl bg-[#2389D8] px-4 py-2 text-xs font-bold text-white"
-                    >
-                      <Save className="h-4 w-4" />
-                      <span>Lưu danh sách nhóm</span>
-                    </button>
                   </div>
 
-                  <div className="grid gap-4 md:grid-cols-2">
-                    {groups.map((grp) => (
-                      <div key={grp.group_id} className="rounded-2xl border border-slate-200 bg-[#F8FBFF] p-4">
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="text"
-                            value={grp.group_name}
-                            onChange={(e) => handleRenameGroup(grp.group_id, e.target.value)}
-                            className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-bold"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteGroup(grp.group_id)}
-                            className="rounded-lg p-2 text-rose-500 hover:bg-rose-50"
-                            title="Xóa nhóm"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-
-                        <p className="mt-2 text-xs font-bold text-slate-500">
-                          Thành viên ({grp.members.length}):
-                        </p>
-                        <ul className="mt-1.5 space-y-1 text-xs">
-                          {grp.members.map((m) => (
-                            <li key={m.student_id} className="flex items-center justify-between rounded-lg bg-white px-2.5 py-1.5">
-                              <span>
-                                {m.display_name} ({m.class_name})
-                              </span>
-                              <span className="font-mono font-bold text-[#2389D8]">{m.total_score}đ</span>
-                            </li>
-                          ))}
-                          {grp.members.length === 0 && (
-                            <li className="text-slate-400">Chưa có thành viên.</li>
-                          )}
-                        </ul>
-                      </div>
+                  {/* 5 Questions Tabs */}
+                  <div className="grid grid-cols-5 gap-2">
+                    {vanDungQuestions.map((q, idx) => (
+                      <button
+                        key={q.id}
+                        type="button"
+                        onClick={() => setEditingIndex(idx)}
+                        className={`rounded-xl border p-2.5 text-center transition-all ${
+                          editingIndex === idx
+                            ? 'border-[#2389D8] bg-[#E8F4FF] shadow-xs ring-2 ring-[#2389D8]/20'
+                            : 'border-slate-200 bg-white hover:bg-slate-50'
+                        }`}
+                      >
+                        <p className="text-xs font-black text-slate-900">Thử thách {idx + 1}</p>
+                        <p className="text-[11px] text-slate-500 truncate">{q.typeLabel}</p>
+                      </button>
                     ))}
                   </div>
 
-                  {/* Full Student List + Assign to Group */}
-                  <div className="rounded-2xl border border-slate-200 p-4">
-                    <h3 className="text-sm font-extrabold text-slate-900">
-                      Toàn bộ học sinh đã đăng nhập ({students.length}) · Phân nhóm nhanh
-                    </h3>
-                    {students.length === 0 ? (
-                      <p className="mt-2 text-xs text-slate-500">Chưa có học sinh nào đăng nhập.</p>
-                    ) : (
-                      <div className="mt-3 overflow-x-auto">
-                        <table className="w-full text-left text-xs">
-                          <thead>
-                            <tr className="border-b border-slate-200 text-slate-500">
-                              <th className="py-2 pr-3">Họ và tên đầy đủ</th>
-                              <th className="py-2 pr-3">Trường</th>
-                              <th className="py-2 pr-3">Lớp</th>
-                              <th className="py-2 pr-3">Điểm</th>
-                              <th className="py-2">Chuyển vào nhóm</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {students.map((st) => {
-                              const currentGrp = groups.find((g) =>
-                                g.members.some((m) => m.student_id === st.student_id)
-                              );
-                              return (
-                                <tr key={st.student_id}>
-                                  <td className="py-2 pr-3 font-bold text-slate-900">{st.full_name}</td>
-                                  <td className="py-2 pr-3 text-slate-600">{st.school}</td>
-                                  <td className="py-2 pr-3 text-slate-600">{st.class_name}</td>
-                                  <td className="py-2 pr-3 font-mono font-bold text-[#2389D8]">
-                                    {st.total_score}
-                                  </td>
-                                  <td className="py-2">
-                                    <select
-                                      value={currentGrp?.group_id || ''}
-                                      onChange={(e) => handleMoveStudentToGroup(st, e.target.value)}
-                                      className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold"
-                                    >
-                                      <option value="">-- Chưa phân nhóm --</option>
-                                      {groups.map((g) => (
-                                        <option key={g.group_id} value={g.group_id}>
-                                          {g.group_name}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
+                  {/* Edit Form for current question */}
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                      <div>
+                        <span className="rounded-md bg-blue-100 px-2 py-0.5 text-xs font-black text-blue-800">
+                          {currentEditingQ.typeLabel}
+                        </span>
+                        <h4 className="mt-1 text-base font-extrabold text-slate-900">
+                          {currentEditingQ.title}
+                        </h4>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-500">Điểm tối đa:</span>
+                        <input
+                          type="number"
+                          value={currentEditingQ.points}
+                          onChange={(e) =>
+                            handleUpdateCurrentQuestion('points', Number(e.target.value) || 20)
+                          }
+                          className="w-16 rounded-lg border border-slate-300 px-2 py-1 text-center font-bold text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Tiêu đề & Yêu cầu */}
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700">Tên thử thách</label>
+                        <input
+                          type="text"
+                          value={currentEditingQ.title}
+                          onChange={(e) => handleUpdateCurrentQuestion('title', e.target.value)}
+                          className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-medium"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700">Phụ đề mô tả</label>
+                        <input
+                          type="text"
+                          value={currentEditingQ.subtitle}
+                          onChange={(e) => handleUpdateCurrentQuestion('subtitle', e.target.value)}
+                          className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-medium"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700">Nội dung câu hỏi (Prompt)</label>
+                      <textarea
+                        rows={2}
+                        value={currentEditingQ.prompt}
+                        onChange={(e) => handleUpdateCurrentQuestion('prompt', e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-medium"
+                      />
+                    </div>
+
+                    {/* Form chi tiết theo từng loại câu */}
+                    {/* CÂU 1: SINGLE CHOICE */}
+                    {currentEditingQ.type === 'single_choice' && currentEditingQ.options && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 space-y-3">
+                        <p className="text-xs font-black text-slate-700 uppercase">
+                          4 Lựa chọn & Đáp án đúng:
+                        </p>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {currentEditingQ.options.map((opt, optIdx) => (
+                            <div key={opt.id} className="flex items-center gap-2 rounded-xl bg-white p-2 border border-slate-200">
+                              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 font-mono text-xs font-bold">
+                                {opt.id}
+                              </span>
+                              <input
+                                type="text"
+                                value={opt.label}
+                                onChange={(e) => {
+                                  const nextOpts = [...(currentEditingQ.options || [])];
+                                  nextOpts[optIdx] = { ...nextOpts[optIdx], label: e.target.value };
+                                  handleUpdateCurrentQuestion('options', nextOpts);
+                                }}
+                                className="flex-1 rounded-md border border-slate-200 px-2 py-1 text-xs"
+                              />
+                              <label className="flex items-center gap-1 text-[11px] font-bold text-slate-600">
+                                <input
+                                  type="radio"
+                                  name="single_correct"
+                                  checked={currentEditingQ.correctAnswer === opt.id}
+                                  onChange={() => handleUpdateCurrentQuestion('correctAnswer', opt.id)}
+                                />
+                                <span>Đúng</span>
+                              </label>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
+
+                    {/* CÂU 2: MULTI CHOICE */}
+                    {currentEditingQ.type === 'multi_choice' && currentEditingQ.options && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 space-y-3">
+                        <p className="text-xs font-black text-slate-700 uppercase">
+                          Các lựa chọn & Đánh dấu TẤT CẢ đáp án đúng:
+                        </p>
+                        <div className="space-y-2">
+                          {currentEditingQ.options.map((opt, optIdx) => {
+                            const correctArr = Array.isArray(currentEditingQ.correctAnswer)
+                              ? (currentEditingQ.correctAnswer as string[])
+                              : [];
+                            const isChecked = correctArr.includes(opt.id);
+
+                            return (
+                              <div key={opt.id} className="flex items-center gap-2 rounded-xl bg-white p-2 border border-slate-200">
+                                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 font-mono text-xs font-bold">
+                                  {opt.id}
+                                </span>
+                                <input
+                                  type="text"
+                                  value={opt.label}
+                                  onChange={(e) => {
+                                    const nextOpts = [...(currentEditingQ.options || [])];
+                                    nextOpts[optIdx] = { ...nextOpts[optIdx], label: e.target.value };
+                                    handleUpdateCurrentQuestion('options', nextOpts);
+                                  }}
+                                  className="flex-1 rounded-md border border-slate-200 px-2 py-1 text-xs"
+                                />
+                                <label className="flex items-center gap-1 text-[11px] font-bold text-slate-600">
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      const nextArr = e.target.checked
+                                        ? [...correctArr, opt.id]
+                                        : correctArr.filter((id) => id !== opt.id);
+                                      handleUpdateCurrentQuestion('correctAnswer', nextArr);
+                                    }}
+                                  />
+                                  <span>Đúng</span>
+                                </label>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* CÂU 3: DRAG & DROP */}
+                    {currentEditingQ.type === 'drag_drop' && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 space-y-3">
+                        <p className="text-xs font-black text-slate-700 uppercase">
+                          Thẻ từ & Đoạn văn kéo thả:
+                        </p>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-600">Thẻ 1 (Đáp án Ô 1):</label>
+                            <input
+                              type="text"
+                              value={currentEditingQ.dragItems?.[0] || 'THAY ĐỔI'}
+                              onChange={(e) => {
+                                const nextItems = [e.target.value, currentEditingQ.dragItems?.[1] || 'KHÔNG ĐỔI'];
+                                handleUpdateCurrentQuestion('dragItems', nextItems);
+                                handleUpdateCurrentQuestion('correctAnswer', {
+                                  blank1: e.target.value,
+                                  blank2: currentEditingQ.dragItems?.[1] || 'KHÔNG ĐỔI',
+                                });
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-blue-700"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-600">Thẻ 2 (Đáp án Ô 2):</label>
+                            <input
+                              type="text"
+                              value={currentEditingQ.dragItems?.[1] || 'KHÔNG ĐỔI'}
+                              onChange={(e) => {
+                                const nextItems = [currentEditingQ.dragItems?.[0] || 'THAY ĐỔI', e.target.value];
+                                handleUpdateCurrentQuestion('dragItems', nextItems);
+                                handleUpdateCurrentQuestion('correctAnswer', {
+                                  blank1: currentEditingQ.dragItems?.[0] || 'THAY ĐỔI',
+                                  blank2: e.target.value,
+                                });
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-emerald-700"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* CÂU 4: FILL BLANK */}
+                    {currentEditingQ.type === 'fill_blank' && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 space-y-3">
+                        <p className="text-xs font-black text-slate-700 uppercase">Đáp án biểu thức:</p>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600">
+                            Đáp án chính xác (chấp nhận 360/n, 360 / n, 360:n):
+                          </label>
+                          <input
+                            type="text"
+                            value={String(currentEditingQ.correctAnswer || '360/n')}
+                            onChange={(e) => handleUpdateCurrentQuestion('correctAnswer', e.target.value)}
+                            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 font-mono text-sm font-bold text-[#2389D8]"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* CÂU 5: MATCHING */}
+                    {currentEditingQ.type === 'matching' && currentEditingQ.columnA && currentEditingQ.columnB && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 space-y-3">
+                        <p className="text-xs font-black text-slate-700 uppercase">Cặp ghép đôi chính xác:</p>
+                        <div className="space-y-2">
+                          {currentEditingQ.columnA.map((colA) => {
+                            const curMatchObj = (typeof currentEditingQ.correctAnswer === 'object' && currentEditingQ.correctAnswer !== null
+                              ? currentEditingQ.correctAnswer
+                              : {}) as Record<string, string>;
+                            const curSelectedB = curMatchObj[colA.id] || 'C';
+
+                            return (
+                              <div key={colA.id} className="flex flex-col sm:flex-row items-center gap-2 rounded-xl bg-white p-2.5 border border-slate-200">
+                                <span className="font-mono text-xs font-bold text-blue-700">[{colA.id}] {colA.text}</span>
+                                <span className="text-slate-400">➔</span>
+                                <select
+                                  value={curSelectedB}
+                                  onChange={(e) => {
+                                    handleUpdateCurrentQuestion('correctAnswer', {
+                                      ...curMatchObj,
+                                      [colA.id]: e.target.value,
+                                    });
+                                  }}
+                                  className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-bold text-emerald-800"
+                                >
+                                  {currentEditingQ.columnB?.map((colB) => (
+                                    <option key={colB.id} value={colB.id}>
+                                      [{colB.id}] {colB.text}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Giải thích đúng & sai */}
+                    <div className="grid gap-3 sm:grid-cols-2 pt-2">
+                      <div>
+                        <label className="block text-xs font-bold text-emerald-700">
+                          Lời giải thích khi làm ĐÚNG
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={currentEditingQ.explanationCorrect}
+                          onChange={(e) => handleUpdateCurrentQuestion('explanationCorrect', e.target.value)}
+                          className="mt-1 w-full rounded-xl border border-emerald-200 bg-emerald-50/30 px-3 py-2 text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-amber-700">
+                          Lời giải thích khi làm CHƯA ĐÚNG
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={currentEditingQ.explanationIncorrect}
+                          onChange={(e) => handleUpdateCurrentQuestion('explanationIncorrect', e.target.value)}
+                          className="mt-1 w-full rounded-xl border border-amber-200 bg-amber-50/30 px-3 py-2 text-xs"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
 
-              {/* TAB 2: ASSIGNMENTS */}
-              {activeTab === 'assignments' && (
-                <div className="space-y-5">
-                  <div className="flex justify-between">
-                    <h3 className="text-sm font-extrabold text-slate-900">Danh sách nhiệm vụ đồng đội</h3>
+              {/* TAB 2: BÁO CÁO & DANH SÁCH HỌC SINH */}
+              {activeTab === 'students' && (
+                <div className="space-y-4">
+                  {/* Top Stats */}
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <div className="rounded-2xl border border-slate-200 bg-[#F0F8FF] p-4 text-center">
+                      <p className="text-xs font-bold text-slate-500">TỔNG HỌC SINH</p>
+                      <p className="text-2xl font-black text-[#2389D8] tabular-nums sm:text-3xl">
+                        {students.length}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-[#F0FDF4] p-4 text-center">
+                      <p className="text-xs font-bold text-slate-500">ĐẠT ĐIỂM TỐI ĐA (100)</p>
+                      <p className="text-2xl font-black text-emerald-600 tabular-nums sm:text-3xl">
+                        {students.filter((s) => s.total_score >= 100).length}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-[#FFFBEB] p-4 text-center">
+                      <p className="text-xs font-bold text-slate-500">ĐIỂM TRUNG BÌNH</p>
+                      <p className="text-2xl font-black text-amber-800 tabular-nums sm:text-3xl">
+                        {students.length > 0
+                          ? Math.round(
+                              students.reduce((a, s) => a + s.total_score, 0) / students.length
+                            )
+                          : 0}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-[#FAF5FF] p-4 text-center">
+                      <p className="text-xs font-bold text-slate-500">LẦN NỘP BÀI</p>
+                      <p className="text-2xl font-black text-purple-700 tabular-nums sm:text-3xl">
+                        {students.reduce((a, s) => a + s.total_attempts, 0)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Filter and Export */}
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="relative min-w-[240px] flex-1">
+                      <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                      <input
+                        type="text"
+                        value={studentSearch}
+                        onChange={(e) => setStudentSearch(e.target.value)}
+                        placeholder="Tìm theo tên học sinh, trường hoặc lớp..."
+                        className="w-full rounded-xl border border-slate-200 pl-9 pr-3 py-2 text-xs"
+                      />
+                    </div>
                     <button
                       type="button"
-                      onClick={() =>
-                        setEditingAsm({
-                          assignment_id: `ASM_${Date.now().toString(36).toUpperCase()}`,
-                          group_id: groups[0]?.group_id || 'G1',
-                          title: 'NHIỆM VỤ MỚI',
-                          description: '',
-                          questions: ['Yêu cầu 1'],
-                          max_score: 30,
-                          status: 'Đang mở',
-                        })
-                      }
-                      className="flex items-center gap-1 rounded-xl bg-[#38C9B1] px-4 py-2 text-xs font-bold text-white"
+                      onClick={handleExportCsv}
+                      className="flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
                     >
-                      <Plus className="h-4 w-4" />
-                      <span>Tạo nhiệm vụ mới</span>
+                      <Download className="h-4 w-4" />
+                      <span>Xuất file Excel/CSV</span>
                     </button>
                   </div>
 
-                  {editingAsm && (
-                    <div className="space-y-3 rounded-2xl border border-[#2389D8]/30 bg-[#F8FBFF] p-5">
-                      <h4 className="text-sm font-extrabold text-[#2389D8]">
-                        Chỉnh sửa nhiệm vụ ({editingAsm.assignment_id})
-                      </h4>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="text-xs font-bold text-slate-700">
-                          Tiêu đề nhiệm vụ
-                          <input
-                            type="text"
-                            value={editingAsm.title}
-                            onChange={(e) => setEditingAsm({ ...editingAsm, title: e.target.value })}
-                            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                          />
-                        </label>
-                        <label className="text-xs font-bold text-slate-700">
-                          Nhóm được giao
-                          <select
-                            value={editingAsm.group_id}
-                            onChange={(e) => setEditingAsm({ ...editingAsm, group_id: e.target.value })}
-                            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                          >
-                            {groups.map((g) => (
-                              <option key={g.group_id} value={g.group_id}>
-                                {g.group_name}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </div>
-
-                      <label className="block text-xs font-bold text-slate-700">
-                        Nội dung mô tả nhiệm vụ
-                        <textarea
-                          rows={3}
-                          value={editingAsm.description}
-                          onChange={(e) => setEditingAsm({ ...editingAsm, description: e.target.value })}
-                          className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                        />
-                      </label>
-
-                      <label className="block text-xs font-bold text-slate-700">
-                        Các yêu cầu thực hiện (mỗi dòng một yêu cầu)
-                        <textarea
-                          rows={3}
-                          value={editingAsm.questions.join('\n')}
-                          onChange={(e) =>
-                            setEditingAsm({
-                              ...editingAsm,
-                              questions: e.target.value.split('\n').filter(Boolean),
-                            })
-                          }
-                          className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                        />
-                      </label>
-
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="text-xs font-bold text-slate-700">
-                          Điểm tối đa
-                          <input
-                            type="number"
-                            value={editingAsm.max_score}
-                            onChange={(e) =>
-                              setEditingAsm({ ...editingAsm, max_score: Number(e.target.value) || 10 })
-                            }
-                            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                          />
-                        </label>
-                        <label className="text-xs font-bold text-slate-700">
-                          Trạng thái
-                          <select
-                            value={editingAsm.status}
-                            onChange={(e) => setEditingAsm({ ...editingAsm, status: e.target.value })}
-                            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                          >
-                            <option value="Đang mở">Đang mở</option>
-                            <option value="Đã hoàn thành">Đã hoàn thành</option>
-                          </select>
-                        </label>
-                      </div>
-
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          disabled={saving}
-                          onClick={handleSaveAssignment}
-                          className="rounded-xl bg-[#2389D8] px-4 py-2 text-xs font-bold text-white"
-                        >
-                          Lưu lên hệ thống
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditingAsm(null)}
-                          className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700"
-                        >
-                          Hủy
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="grid gap-4 md:grid-cols-2">
-                    {assignments.map((asm) => (
-                      <div key={asm.assignment_id} className="rounded-2xl border border-slate-200 p-4">
-                        <div className="flex items-center justify-between text-xs font-bold text-[#2389D8]">
-                          <span>
-                            {asm.assignment_id} · Giao cho {asm.group_id}
-                          </span>
-                          <span>{asm.max_score}đ</span>
-                        </div>
-                        <h4 className="mt-1 text-base font-extrabold text-slate-900">{asm.title}</h4>
-                        <p className="mt-1 text-xs text-slate-600">{asm.description}</p>
-                        <button
-                          type="button"
-                          onClick={() => setEditingAsm(asm)}
-                          className="mt-3 rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-200"
-                        >
-                          Chỉnh sửa nhiệm vụ
-                        </button>
-                      </div>
-                    ))}
+                  {/* Table */}
+                  <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+                    <table className="w-full text-left text-xs">
+                      <thead className="border-b border-slate-200 bg-slate-50 font-bold text-slate-700">
+                        <tr>
+                          <th className="p-3">STT</th>
+                          <th className="p-3">Học sinh</th>
+                          <th className="p-3">Trường · Lớp</th>
+                          <th className="p-3 text-right">Tổng điểm</th>
+                          <th className="p-3 text-right">Số câu đúng</th>
+                          <th className="p-3 text-right">Lần nộp</th>
+                          <th className="p-3 text-right">Hoạt động cuối</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredStudents.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="p-6 text-center text-slate-400">
+                              Chưa có dữ liệu học sinh nào.
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredStudents.map((s, idx) => (
+                            <tr key={s.student_id} className="hover:bg-slate-50/80">
+                              <td className="p-3 font-mono text-slate-400">{idx + 1}</td>
+                              <td className="p-3 font-bold text-slate-900">{s.full_name}</td>
+                              <td className="p-3 text-slate-600">
+                                {s.school} · Lớp {s.class_name}
+                              </td>
+                              <td className="p-3 text-right font-mono font-black text-[#2389D8]">
+                                {s.total_score}/100
+                              </td>
+                              <td className="p-3 text-right font-mono text-emerald-700 font-bold">
+                                {s.total_correct}/5
+                              </td>
+                              <td className="p-3 text-right font-mono text-slate-600">
+                                {s.total_attempts}
+                              </td>
+                              <td className="p-3 text-right font-mono text-[11px] text-slate-400">
+                                {s.last_active ? s.last_active.slice(0, 16).replace('T', ' ') : '—'}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               )}
 
-              {/* TAB 3: QUESTION BANK */}
-              {activeTab === 'questions' && (
-                <div className="space-y-5">
-                  <div className="flex justify-between">
-                    <h3 className="text-sm font-extrabold text-slate-900">
-                      Câu hỏi nhiệm vụ nhóm ({questionBank.length})
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setEditingQ({
-                          question_id: `TQ_${Date.now().toString(36).toUpperCase()}`,
-                          assignment_id: assignments[0]?.assignment_id || 'ASM_1',
-                          question_text: '',
-                          question_type: 'single_choice',
-                          options: ['Đáp án A', 'Đáp án B', 'Đáp án C'],
-                          correct_answer: 'Đáp án A',
-                          points: 15,
-                          explanation: '',
-                        })
-                      }
-                      className="flex items-center gap-1 rounded-xl bg-[#38C9B1] px-4 py-2 text-xs font-bold text-white"
-                    >
-                      <Plus className="h-4 w-4" />
-                      <span>Thêm câu hỏi mới</span>
-                    </button>
-                  </div>
-
-                  {editingQ && (
-                    <div className="space-y-3 rounded-2xl border border-[#2389D8]/30 bg-[#F8FBFF] p-5">
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="text-xs font-bold text-slate-700">
-                          Thuộc nhiệm vụ
-                          <select
-                            value={editingQ.assignment_id}
-                            onChange={(e) => setEditingQ({ ...editingQ, assignment_id: e.target.value })}
-                            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                          >
-                            {assignments.map((a) => (
-                              <option key={a.assignment_id} value={a.assignment_id}>
-                                {a.title}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="text-xs font-bold text-slate-700">
-                          Điểm câu hỏi
-                          <input
-                            type="number"
-                            value={editingQ.points}
-                            onChange={(e) => setEditingQ({ ...editingQ, points: Number(e.target.value) || 10 })}
-                            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                          />
-                        </label>
-                      </div>
-
-                      <label className="block text-xs font-bold text-slate-700">
-                        Nội dung câu hỏi
-                        <input
-                          type="text"
-                          value={editingQ.question_text}
-                          onChange={(e) => setEditingQ({ ...editingQ, question_text: e.target.value })}
-                          className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                        />
-                      </label>
-
-                      <label className="block text-xs font-bold text-slate-700">
-                        Các lựa chọn (ngăn cách bởi dấu phẩy)
-                        <input
-                          type="text"
-                          value={editingQ.options.join(', ')}
-                          onChange={(e) =>
-                            setEditingQ({
-                              ...editingQ,
-                              options: e.target.value
-                                .split(',')
-                                .map((s) => s.trim())
-                                .filter(Boolean),
-                            })
-                          }
-                          className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                        />
-                      </label>
-
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="text-xs font-bold text-slate-700">
-                          Đáp án đúng (khớp chính xác lựa chọn)
-                          <input
-                            type="text"
-                            value={editingQ.correct_answer}
-                            onChange={(e) => setEditingQ({ ...editingQ, correct_answer: e.target.value })}
-                            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                          />
-                        </label>
-                        <label className="text-xs font-bold text-slate-700">
-                          Giải thích đáp án
-                          <input
-                            type="text"
-                            value={editingQ.explanation}
-                            onChange={(e) => setEditingQ({ ...editingQ, explanation: e.target.value })}
-                            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                          />
-                        </label>
-                      </div>
-
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          disabled={saving}
-                          onClick={handleSaveQuestionItem}
-                          className="rounded-xl bg-[#2389D8] px-4 py-2 text-xs font-bold text-white"
-                        >
-                          Lưu câu hỏi
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditingQ(null)}
-                          className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700"
-                        >
-                          Hủy
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="space-y-3">
-                    {questionBank.map((q) => (
-                      <div key={q.question_id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 p-4">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-bold text-[#2389D8]">
-                            {q.assignment_id} · {q.points} điểm
-                          </p>
-                          <p className="mt-0.5 text-sm font-bold text-slate-900">{q.question_text}</p>
-                          <p className="mt-0.5 text-xs text-slate-500">Đáp án đúng: {q.correct_answer}</p>
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setEditingQ(q)}
-                            className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-700"
-                          >
-                            Sửa
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteQuestion(q.question_id)}
-                            className="rounded-lg bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-600"
-                          >
-                            Xóa
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 4: DATA, CONFIG, EXPORT & PASSWORD */}
-              {activeTab === 'data' && (
+              {/* TAB 3: CÀI ĐẶT LỚP & ĐỔI MẬT KHẨU */}
+              {activeTab === 'settings' && (
                 <div className="space-y-6">
-                  {/* KPI Strip */}
-                  <div className="grid gap-4 sm:grid-cols-3">
-                    <div className="rounded-2xl border border-slate-200 bg-[#F8FBFF] p-4">
-                      <p className="text-xs font-bold text-slate-500">Tổng số học sinh tham gia</p>
-                      <p className="mt-1 text-2xl font-extrabold text-[#2389D8] tabular-nums">
-                        {stats.total_students}
-                      </p>
-                    </div>
-                    <div className="rounded-2xl border border-slate-200 bg-[#F8FBFF] p-4">
-                      <p className="text-xs font-bold text-slate-500">Số học sinh hoàn thành (≥10 câu)</p>
-                      <p className="mt-1 text-2xl font-extrabold text-[#38C9B1] tabular-nums">
-                        {stats.completed_students}
-                      </p>
-                    </div>
-                    <div className="rounded-2xl border border-slate-200 bg-[#F8FBFF] p-4">
-                      <p className="text-xs font-bold text-slate-500">Tổng điểm toàn hệ thống</p>
-                      <p className="mt-1 text-2xl font-extrabold text-[#FF9850] tabular-nums">
-                        {stats.total_score}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Editable Grade / Subject / Lesson */}
-                  <div className="rounded-2xl border border-slate-200 p-5">
-                    <h3 className="text-sm font-extrabold text-slate-900">
-                      Cấu hình Khối lớp & Môn học (hiển thị toàn ứng dụng)
-                    </h3>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                      <label className="text-xs font-bold text-slate-700">
-                        Khối lớp
+                  {/* Cấu hình bài học */}
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
+                    <h3 className="text-sm font-extrabold text-slate-900">Thông tin Khối lớp & Bài học</h3>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div>
+                        <label className="text-xs font-bold text-slate-700">Khối lớp</label>
                         <input
                           type="text"
                           value={config.grade_level}
                           onChange={(e) => setConfig({ ...config, grade_level: e.target.value })}
-                          className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                          className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs"
                         />
-                      </label>
-                      <label className="text-xs font-bold text-slate-700">
-                        Môn học
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-700">Môn học</label>
                         <input
                           type="text"
                           value={config.subject_name}
                           onChange={(e) => setConfig({ ...config, subject_name: e.target.value })}
-                          className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                          className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs"
                         />
-                      </label>
-                      <label className="text-xs font-bold text-slate-700">
-                        Bài học
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-700">Tên bài học</label>
                         <input
                           type="text"
                           value={config.lesson_title}
                           onChange={(e) => setConfig({ ...config, lesson_title: e.target.value })}
-                          className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                          className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs"
                         />
-                      </label>
+                      </div>
                     </div>
                     <button
                       type="button"
                       disabled={saving}
                       onClick={handleSaveConfig}
-                      className="mt-3 rounded-xl bg-[#2389D8] px-4 py-2 text-xs font-bold text-white"
+                      className="rounded-xl bg-[#2389D8] px-4 py-2 text-xs font-bold text-white hover:bg-[#1E7BC4]"
                     >
-                      Lưu cấu hình lớp học
+                      Lưu thông tin bài học
                     </button>
                   </div>
 
-                  {/* Google Sheets Status & Share Link + Password */}
-                  <div className="grid gap-5 md:grid-cols-2">
+                  {/* Đổi mật khẩu & Chia sẻ */}
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    {/* Chia sẻ lớp học */}
                     <div className="rounded-2xl border border-slate-200 bg-[#F8FBFF] p-5">
                       <div className="flex items-center gap-2 text-sm font-extrabold text-slate-900">
                         <Cloud className="h-4 w-4 text-[#2389D8]" />
-                        <span>Cơ sở dữ liệu Google Sheets & Chia sẻ</span>
+                        <span>Chia sẻ liên kết ứng dụng</span>
                       </div>
-                      <p className="mt-2 text-xs text-slate-600 leading-relaxed">
-                        Mã Google Sheets đã được tích hợp trực tiếp vào mã nguồn hệ thống. Dữ liệu học sinh, điểm số, danh sách đội và câu hỏi nhiệm vụ được lưu tự động trên cùng trang tính.
+                      <p className="mt-1 text-xs text-slate-600">
+                        Ứng dụng đã kết nối trực tiếp với Google Sheets. Sao chép link để gửi cho học sinh làm bài:
                       </p>
-                      <div className="mt-4">
-                        <button
-                          type="button"
-                          onClick={handleCopyShareLink}
-                          className="flex items-center gap-1.5 rounded-xl bg-[#2389D8] px-4 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-[#1E7BC4]"
-                        >
-                          <ClipboardCopy className="h-4 w-4" />
-                          <span>Sao chép link chia sẻ cho học sinh</span>
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={handleCopyShareLink}
+                        className="mt-3 flex items-center gap-2 rounded-xl bg-[#2389D8] px-4 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-[#1E7BC4]"
+                      >
+                        <ClipboardCopy className="h-4 w-4" />
+                        <span>Sao chép link cho học sinh</span>
+                      </button>
                     </div>
 
+                    {/* Đổi mật khẩu giáo viên */}
                     <div className="rounded-2xl border border-slate-200 p-5">
                       <div className="flex items-center gap-2 text-sm font-extrabold text-slate-900">
                         <KeyRound className="h-4 w-4 text-[#FF9850]" />
                         <span>Đổi mật khẩu giáo viên (lưu trên Apps Script)</span>
                       </div>
-                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                      <div className="mt-3 space-y-2">
                         <input
                           type="password"
                           placeholder="Mật khẩu hiện tại"
                           value={oldPw}
                           onChange={(e) => setOldPw(e.target.value)}
-                          className="rounded-xl border border-slate-300 px-3 py-2 text-xs"
+                          className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs"
                         />
                         <input
                           type="password"
-                          placeholder="Mật khẩu mới (≥4 kí tự)"
+                          placeholder="Mật khẩu mới (≥4 ký tự)"
                           value={newPw}
                           onChange={(e) => setNewPw(e.target.value)}
-                          className="rounded-xl border border-slate-300 px-3 py-2 text-xs"
+                          className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs"
                         />
+                        <button
+                          type="button"
+                          onClick={handleChangePassword}
+                          className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                        >
+                          Lưu mật khẩu mới
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={handleChangePassword}
-                        className="mt-3 rounded-xl bg-[#FF9850] px-4 py-2 text-xs font-bold text-white"
-                      >
-                        Cập nhật mật khẩu
-                      </button>
                     </div>
-                  </div>
-
-                  {/* Export CSV */}
-                  <div className="flex items-center justify-between rounded-2xl border border-slate-200 p-4">
-                    <div>
-                      <h3 className="text-sm font-extrabold text-slate-900">Bảng điểm toàn hệ thống</h3>
-                      <p className="text-xs text-slate-500">Xuất danh sách học sinh, trường, lớp và điểm số ra CSV.</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleExportCsv}
-                      className="flex items-center gap-1.5 rounded-xl bg-[#38C9B1] px-4 py-2 text-xs font-bold text-white"
-                    >
-                      <Download className="h-4 w-4" />
-                      <span>Xuất dữ liệu CSV</span>
-                    </button>
                   </div>
                 </div>
               )}
