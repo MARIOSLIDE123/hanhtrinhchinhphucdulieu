@@ -978,9 +978,11 @@ function getLeaderboard_(ss, currentStudentId) {
   return {
     ok: true,
     total_students: ranked.length,
+    totalStudents: ranked.length,
     top10: ranked.slice(0, 10),
     top50: ranked.slice(0, 50),
     my_rank: myRank,
+    myRank: myRank,
     updated_at: new Date().toISOString()
   };
 }

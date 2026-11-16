@@ -256,7 +256,7 @@ export function HomeScreen({
                       {completedCount === 0
                         ? 'BẮT ĐẦU CHINH PHỤC NGAY'
                         : completedCount === 5
-                        ? 'LUYỆN TẬP LẠI (NÂNG ĐIỂM)'
+                        ? 'XEM LẠI BÀI LÀM & ĐIỂM SỐ'
                         : 'TIẾP TỤC HÀNH TRÌNH'}
                     </span>
                   </button>

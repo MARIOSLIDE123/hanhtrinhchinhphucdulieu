@@ -605,27 +605,70 @@ export async function fetchLeaderboard(currentStudentId?: string): Promise<{
   totalStudents: number;
   synced: boolean;
 }> {
+  const CACHE_KEY = 'DATA_ADVENTURE_LEADERBOARD_CACHE';
+
+  // Lấy dữ liệu cache sẵn có trong máy để đảm bảo không bao giờ bị lúc hiện lúc mất
+  let cachedData: {
+    top10: LeaderboardEntry[];
+    top50: LeaderboardEntry[];
+    myRank?: LeaderboardEntry;
+    totalStudents: number;
+  } | null = null;
+  try {
+    const rawCache = localStorage.getItem(CACHE_KEY);
+    if (rawCache) cachedData = JSON.parse(rawCache);
+  } catch {}
+
   if (getStoredGasUrl()) {
     try {
       const res = await gasGet<{
         ok: boolean;
-        top10: LeaderboardEntry[];
-        top50: LeaderboardEntry[];
+        top10?: LeaderboardEntry[];
+        top50?: LeaderboardEntry[];
+        my_rank?: LeaderboardEntry;
         myRank?: LeaderboardEntry;
-        totalStudents: number;
+        total_students?: number;
+        totalStudents?: number;
       }>('getLeaderboard', currentStudentId ? { student_id: currentStudentId } : {});
-      return {
-        top10: res.top10 || [],
-        top50: res.top50 || [],
-        myRank: res.myRank,
-        totalStudents: res.totalStudents || 0,
-        synced: true,
-      };
-    } catch {
-      // Fallback offline
+
+      if (res && res.ok !== false) {
+        const top10 = res.top10 || [];
+        const top50 = res.top50 || [];
+        const myRank = res.myRank || res.my_rank;
+        const totalStudents = res.totalStudents || res.total_students || top10.length;
+
+        const payload = {
+          top10,
+          top50,
+          myRank,
+          totalStudents,
+          synced: true,
+        };
+
+        // Lưu cache mới nhất
+        try {
+          localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
+        } catch {}
+
+        return payload;
+      }
+    } catch (err) {
+      console.warn('Lỗi kết nối máy chủ bảng xếp hạng, sử dụng dữ liệu bộ nhớ đệm:', err);
     }
   }
 
+  // Nếu có cache, trả về cache ngay lập tức để giao diện không bị gián đoạn
+  if (cachedData && cachedData.top10 && cachedData.top10.length > 0) {
+    return {
+      top10: cachedData.top10,
+      top50: cachedData.top50 || cachedData.top10,
+      myRank: cachedData.myRank,
+      totalStudents: cachedData.totalStudents || cachedData.top10.length,
+      synced: false,
+    };
+  }
+
+  // Fallback từ hồ sơ học sinh địa phương nếu chưa từng có cache
   const local = loadLocalStudent();
   if (!local) {
     return { top10: [], top50: [], totalStudents: 0, synced: false };

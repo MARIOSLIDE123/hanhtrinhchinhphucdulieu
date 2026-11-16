@@ -31,7 +31,8 @@ export function LeaderboardZone({ student, connectionMode, onBack }: Leaderboard
       setTop10(res.top10 || []);
       setTop50(res.top50 || []);
       setMyRank(res.myRank || null);
-      setTotalStudents(res.totalStudents || 0);
+      setTotalStudents(res.totalStudents || (res.top10 ? res.top10.length : 0));
+      setLastUpdated(new Date().toISOString());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Lỗi tải bảng xếp hạng');
     } finally {
@@ -41,12 +42,12 @@ export function LeaderboardZone({ student, connectionMode, onBack }: Leaderboard
 
   useEffect(() => {
     loadData();
-    if (connectionMode !== 'connected') return;
+    // Tự động làm mới mỗi 10 giây để đảm bảo đồng bộ trực tiếp thời gian thực
     const timer = window.setInterval(() => {
       loadData();
-    }, 20000);
+    }, 10000);
     return () => window.clearInterval(timer);
-  }, [loadData, connectionMode]);
+  }, [loadData]);
 
   const catMood: ScratchCatMood = myRank ? 'cheering' : 'happy';
   const botMessage = myRank
@@ -75,10 +76,11 @@ export function LeaderboardZone({ student, connectionMode, onBack }: Leaderboard
               <h1 className="text-base font-extrabold text-slate-900 sm:text-lg">
                 Khu vực 4 · Đấu trường dữ liệu toàn quốc
               </h1>
-              <p className="text-xs text-slate-500">
-                {connected
-                  ? `Tự động cập nhật mỗi 20 giây · ${totalStudents} học sinh tham gia`
-                  : 'Chế độ DEMO / OFFLINE'}
+              <p className="text-xs text-slate-500 flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>
+                  Đồng bộ Google Sheets thời gian thực (mỗi 10s) · {totalStudents} học sinh tham gia
+                </span>
               </p>
             </div>
           </div>
@@ -87,10 +89,10 @@ export function LeaderboardZone({ student, connectionMode, onBack }: Leaderboard
             type="button"
             onClick={loadData}
             disabled={loading}
-            className="btn-3d flex items-center gap-1.5 rounded-xl bg-[#2389D8] px-4 py-2 text-xs font-bold text-white hover:bg-[#1E7BC4] disabled:opacity-60"
+            className="btn-3d flex items-center gap-1.5 rounded-xl bg-[#2389D8] px-4 py-2 text-xs font-bold text-white hover:bg-[#1E7BC4] disabled:opacity-60 cursor-pointer"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-            <span>Làm mới dữ liệu</span>
+            <span>{loading ? 'Đang cập nhật...' : 'Làm mới trực tiếp'}</span>
           </button>
         </div>
       </header>
@@ -98,7 +100,7 @@ export function LeaderboardZone({ student, connectionMode, onBack }: Leaderboard
       <main className="mx-auto max-w-7xl space-y-6 px-4 pt-6 sm:px-6">
         <ScratchCatGuide message={botMessage} mood={catMood} compact />
 
-        {!connected ? (
+        {!connected && top10.length === 0 ? (
           <div className="rounded-3xl border border-amber-200 bg-white p-10 text-center card-3d">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#FFD34F]/25 text-amber-800">
               <CloudOff className="h-8 w-8" />
@@ -111,11 +113,11 @@ export function LeaderboardZone({ student, connectionMode, onBack }: Leaderboard
               Giáo viên vui lòng nhấn biểu tượng bánh răng cài đặt để dán URL Google Apps Script Web App.
             </p>
           </div>
-        ) : error ? (
+        ) : error && top10.length === 0 ? (
           <div className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-center text-sm font-semibold text-rose-800">
             Lỗi tải bảng xếp hạng: {error}
           </div>
-        ) : totalStudents === 0 && !loading ? (
+        ) : totalStudents === 0 && top10.length === 0 && !loading ? (
           <div className="rounded-3xl border border-slate-200 bg-white p-12 text-center card-3d">
             <Trophy className="mx-auto h-12 w-12 text-slate-300" />
             <h2 className="mt-3 text-lg font-extrabold text-slate-900">Chưa có học sinh tham gia</h2>

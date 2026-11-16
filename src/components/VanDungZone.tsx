@@ -4,11 +4,12 @@ import {
   ArrowRight,
   CheckCircle2,
   CornerDownLeft,
+  Eye,
   HelpCircle,
+  Lock,
   Maximize2,
   Minimize2,
   RefreshCw,
-  RotateCcw,
   Sparkles,
   Star,
   Trophy,
@@ -60,7 +61,7 @@ export function VanDungZone({
   const [ans1, setAns1] = useState<string>(''); // single_choice: 'C'
   const [ans2, setAns2] = useState<string[]>([]); // multi_choice: ['A', 'B']
   const [ans3, setAns3] = useState<{ blank1: string; blank2: string }>({ blank1: '', blank2: '' }); // drag_drop
-  const [selectedWordToPlace, setSelectedWordToPlace] = useState<string | null>(null); // Hỗ trợ click-to-place
+  const [selectedWordToPlace, setSelectedWordToPlace] = useState<string | null>(null);
   const [ans4, setAns4] = useState<string>(''); // fill_blank: '360/n'
   const [ans5, setAns5] = useState<Record<string, string>>({}); // matching: { '1': 'C', '2': 'A' }
   const [matchingSelectedA, setMatchingSelectedA] = useState<string | null>(null);
@@ -75,32 +76,23 @@ export function VanDungZone({
   const [isAnswerSubmitted, setIsAnswerSubmitted] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
 
-  // Chế độ Toàn màn hình 16:9 (Fullscreen)
+  // Chế độ Toàn màn hình (Fullscreen)
   const [isFullscreen, setIsFullscreen] = useState(false);
-  // Trạng thái âm thanh & đồng bộ Google Sheets
   const [isMuted, setIsMuted] = useState(soundService.getIsMuted());
   const [isSyncing, setIsSyncing] = useState(false);
-  const [syncStatusMsg, setSyncStatusMsg] = useState<string>('Đã kết nối Google Sheets');
+  const [syncStatusMsg, setSyncStatusMsg] = useState<string>('Google Sheets: Thời gian thực');
 
   const toggleMute = () => {
     const next = soundService.toggleMute();
     setIsMuted(next);
   };
 
-  const handleManualSync = async () => {
-    if (isSyncing) return;
-    setIsSyncing(true);
-    setSyncStatusMsg('Đang đồng bộ Google Sheets...');
-    const res = await syncStudentScoreToGas(student);
-    if (res.ok) {
-      setSyncStatusMsg('Đã đồng bộ Google Sheets ✓');
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
     } else {
-      setSyncStatusMsg('Chưa cập nhật Sheet');
+      document.exitFullscreen().catch(() => {});
     }
-    setTimeout(() => {
-      setIsSyncing(false);
-      setSyncStatusMsg('Đã kết nối Google Sheets');
-    }, 3000);
   };
 
   useEffect(() => {
@@ -111,14 +103,6 @@ export function VanDungZone({
     return () => document.removeEventListener('fullscreenchange', handleFsChange);
   }, []);
 
-  const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(() => {});
-    } else {
-      document.exitFullscreen().catch(() => {});
-    }
-  };
-
   // Đồng hồ tính thời gian tổng thể
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -127,7 +111,7 @@ export function VanDungZone({
     return () => window.clearInterval(timer);
   }, []);
 
-  // Lấy kết quả tốt nhất của từng câu từ lịch sử attempts
+  // Lấy kết quả tốt nhất của từng câu từ lịch sử attempts (học sinh chỉ làm 1 lần duy nhất)
   const bestScores: Record<string, { score: number; is_correct: boolean; answer: string }> = {};
   attempts.forEach((att) => {
     if (!bestScores[att.question_id] || att.score > bestScores[att.question_id].score) {
@@ -138,15 +122,27 @@ export function VanDungZone({
   });
 
   const currentQ = questions[currentIdx] || questions[0];
+  const isQuestionLocked = Boolean(bestScores[currentQ.id]); // Câu hỏi đã làm -> Khóa vĩnh viễn không được chọn lại
 
-  // Khi chuyển câu: reset trạng thái form tạm thời hoặc khôi phục đáp án trước đó
+  // Khi chuyển câu: khôi phục đáp án và KHÓA nếu câu này đã từng trả lời
   useEffect(() => {
     setQuestionStartTime(Date.now());
-    setFeedback(null);
-    setIsAnswerSubmitted(false);
-
     const prev = bestScores[currentQ.id];
+
     if (prev) {
+      // ĐÃ LÀM CÂU NÀY: Khóa tương tác, chỉ cho xem lại đáp án đã chọn
+      setIsAnswerSubmitted(true);
+      setFeedback({
+        ok: true,
+        is_correct: prev.is_correct,
+        score: prev.score,
+        max_score: currentQ.points,
+        awarded_delta: 0,
+        explanation: prev.is_correct
+          ? (currentQ.explanationCorrect || 'Chính xác! Bạn đã hoàn thành câu hỏi này.')
+          : (currentQ.explanationIncorrect || 'Câu hỏi này đã hoàn thành và khóa đáp án.'),
+      });
+
       try {
         if (currentQ.type === 'single_choice') {
           setAns1(prev.answer.replace(/"/g, ''));
@@ -165,17 +161,44 @@ export function VanDungZone({
       } catch {
         // Fallback
       }
+    } else {
+      // CHƯA LÀM CÂU NÀY: Mở tương tác để học sinh trả lời lần duy nhất
+      setIsAnswerSubmitted(false);
+      setFeedback(null);
+      setAns1('');
+      setAns2([]);
+      setAns3({ blank1: '', blank2: '' });
+      setSelectedWordToPlace(null);
+      setAns4('');
+      setAns5({});
+      setMatchingSelectedA(null);
     }
   }, [currentIdx, currentQ.id]);
 
-  // Kiểm tra xem câu hiện tại đã hoàn thành chưa
-  const completedCount = questions.filter(
-    (q) => bestScores[q.id]?.is_correct || (bestScores[q.id]?.score || 0) > 0
-  ).length;
+  // Kiểm tra số câu đã hoàn thành
+  const completedCount = questions.filter((q) => Boolean(bestScores[q.id])).length;
+  const isAllCompleted = completedCount === questions.length;
 
-  // Xử lý nộp bài tức thì (0ms phản hồi)
+  // Đồng bộ thủ công với Google Sheets
+  const handleManualSync = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    setSyncStatusMsg('Đang đồng bộ Sheet...');
+    const res = await syncStudentScoreToGas(student);
+    if (res.ok) {
+      setSyncStatusMsg('Đã đồng bộ Sheet ✓');
+    } else {
+      setSyncStatusMsg('Chưa cập nhật Sheet');
+    }
+    setTimeout(() => {
+      setIsSyncing(false);
+      setSyncStatusMsg('Google Sheets: Thời gian thực');
+    }, 3000);
+  };
+
+  // Nộp bài 1 lần duy nhất
   const handleSubmit = async () => {
-    if (submitting) return;
+    if (submitting || isQuestionLocked) return;
 
     let payloadAnswer: unknown = null;
     if (currentQ.type === 'single_choice') {
@@ -208,7 +231,7 @@ export function VanDungZone({
       setFeedback(fb);
       setIsAnswerSubmitted(true);
 
-      // Phát âm thanh tương tác Đúng / Sai
+      // Phát âm thanh Đúng / Chưa đúng
       if (fb.is_correct || fb.score > 0) {
         soundService.playCorrect();
       } else {
@@ -219,7 +242,7 @@ export function VanDungZone({
     }
   };
 
-  // Nút TIẾP TỤC: sang câu kế tiếp hoặc hiển thị màn hình tổng kết
+  // Nút TIẾP TỤC: chuyển câu hoặc mở tổng kết
   const handleNext = () => {
     if (currentIdx < questions.length - 1) {
       setCurrentIdx((idx) => idx + 1);
@@ -228,26 +251,13 @@ export function VanDungZone({
     }
   };
 
-  // Nút làm lại toàn bộ
-  const handleRestart = () => {
-    setShowSummary(false);
-    setCurrentIdx(0);
-    setAns1('');
-    setAns2([]);
-    setAns3({ blank1: '', blank2: '' });
-    setAns4('');
-    setAns5({});
-    setFeedback(null);
-    setIsAnswerSubmitted(false);
-  };
-
   const formatTime = (sec: number) => {
     const m = Math.floor(sec / 60);
     const s = sec % 60;
     return `${m > 0 ? `${m}m ` : ''}${s}s`;
   };
 
-  /* ==================== MÀN HÌNH TỔNG KẾT (16:9 COMPACT) ==================== */
+  /* ==================== MÀN HÌNH TỔNG KẾT (16:9 RESPONSIVE) ==================== */
   if (showSummary) {
     const totalAchievedScore = questions.reduce(
       (sum, q) => sum + (bestScores[q.id]?.score || 0),
@@ -264,7 +274,7 @@ export function VanDungZone({
             <button
               type="button"
               onClick={onBack}
-              className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50"
+              className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 cursor-pointer"
             >
               <ArrowLeft className="h-4 w-4" />
               <span>Về Trang chủ</span>
@@ -275,8 +285,8 @@ export function VanDungZone({
               <button
                 type="button"
                 onClick={toggleFullscreen}
-                className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:text-[#2389D8]"
-                title="Toàn màn hình 16:9"
+                className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:text-[#2389D8] cursor-pointer"
+                title="Toàn màn hình"
               >
                 {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
               </button>
@@ -285,19 +295,18 @@ export function VanDungZone({
 
           {/* Celebration Body */}
           <div className="py-4 text-center">
-            {/* Mascot & Trophy */}
-            <div className="relative mx-auto mb-3 flex h-24 w-24 items-center justify-center">
+            <div className="relative mx-auto mb-3 flex h-20 w-20 sm:h-24 sm:w-24 items-center justify-center">
               <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-[#FFD34F]/30 to-[#FF9850]/20 animate-pulse" />
-              <ScratchCatAvatar mood="cheering" size={80} className="relative z-10 drop-shadow-md" />
-              <div className="absolute -bottom-1 -right-1 flex h-9 w-9 items-center justify-center rounded-xl bg-[#FFD34F] text-amber-900 shadow-md">
-                <Trophy className="h-5 w-5 fill-amber-500 text-amber-700" />
+              <ScratchCatAvatar mood="cheering" size={72} className="relative z-10 drop-shadow-md" />
+              <div className="absolute -bottom-1 -right-1 flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-xl bg-[#FFD34F] text-amber-900 shadow-md">
+                <Trophy className="h-4 w-4 sm:h-5 sm:w-5 fill-amber-500 text-amber-700" />
               </div>
             </div>
 
-            <h1 className="text-xl font-black tracking-tight text-slate-900 sm:text-2xl">
-              CHÚC MỪNG BẠN ĐÃ CHINH PHỤC 5 THỬ THÁCH!
+            <h1 className="text-lg sm:text-2xl font-black tracking-tight text-slate-900">
+              KẾT QUẢ BÀI THỬ THÁCH (1 LẦN DUY NHẤT)
             </h1>
-            <p className="mt-1 text-sm font-semibold text-[#2389D8]">
+            <p className="mt-1 text-xs sm:text-sm font-semibold text-[#2389D8]">
               Chúc mừng <span className="font-extrabold text-slate-900">{student.full_name}</span> ({student.school} · Lớp {student.class_name})!
             </p>
 
@@ -334,25 +343,37 @@ export function VanDungZone({
               </div>
             </div>
 
-            {/* 5 Questions Mini Grid */}
+            {/* 5 Questions Mini Review Grid */}
             <div className="mt-4 grid grid-cols-5 gap-2 max-w-2xl mx-auto">
               {questions.map((q, idx) => {
                 const res = bestScores[q.id];
                 const sc = res?.score || 0;
                 const isMax = sc === q.points;
                 return (
-                  <div
+                  <button
                     key={q.id}
-                    className={`rounded-xl border p-2 text-center ${
-                      isMax ? 'border-emerald-300 bg-emerald-50/60' : sc > 0 ? 'border-amber-300 bg-amber-50/60' : 'border-slate-200 bg-slate-50'
+                    type="button"
+                    onClick={() => {
+                      setShowSummary(false);
+                      setCurrentIdx(idx);
+                    }}
+                    title="Bấm để xem lại bài làm câu này"
+                    className={`rounded-xl border p-2 text-center transition-all hover:scale-105 cursor-pointer ${
+                      isMax ? 'border-emerald-300 bg-emerald-50/80' : sc > 0 ? 'border-amber-300 bg-amber-50/80' : 'border-rose-200 bg-rose-50/80'
                     }`}
                   >
-                    <span className="text-[11px] font-black text-slate-500">Câu {idx + 1}</span>
-                    <p className="font-mono text-sm font-black text-slate-800">{sc}/{q.points}đ</p>
-                  </div>
+                    <div className="flex items-center justify-center gap-1">
+                      <span className="text-[10px] font-black text-slate-500">Câu {idx + 1}</span>
+                      <Lock className="h-2.5 w-2.5 text-slate-400" />
+                    </div>
+                    <p className="font-mono text-xs sm:text-sm font-black text-slate-800">{sc}/{q.points}đ</p>
+                  </button>
                 );
               })}
             </div>
+            <p className="mt-2 text-[11px] font-semibold text-slate-400 italic">
+              * Điểm số đã được chốt và đồng bộ vào Google Sheets. Bạn có thể bấm vào từng câu ở trên để xem lại bài làm.
+            </p>
           </div>
 
           {/* Action Buttons */}
@@ -360,25 +381,28 @@ export function VanDungZone({
             <button
               type="button"
               onClick={onGoToLeaderboard}
-              className="btn-3d flex items-center gap-2 rounded-2xl bg-[#2389D8] px-5 py-2.5 text-xs font-bold text-white shadow-md hover:bg-[#1C76BD]"
+              className="btn-3d flex items-center gap-2 rounded-2xl bg-[#2389D8] px-5 py-2.5 text-xs font-bold text-white shadow-md hover:bg-[#1C76BD] cursor-pointer"
             >
               <Trophy className="h-4 w-4" />
-              <span>Xem Bảng xếp hạng</span>
+              <span>Xem Bảng xếp hạng toàn quốc</span>
             </button>
 
             <button
               type="button"
-              onClick={handleRestart}
-              className="flex items-center gap-1.5 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+              onClick={() => {
+                setShowSummary(false);
+                setCurrentIdx(0);
+              }}
+              className="flex items-center gap-1.5 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
             >
-              <RotateCcw className="h-4 w-4" />
-              <span>Làm lại thử thách</span>
+              <Eye className="h-4 w-4 text-[#2389D8]" />
+              <span>Xem lại 5 câu hỏi</span>
             </button>
 
             <button
               type="button"
               onClick={onBack}
-              className="flex items-center gap-1.5 rounded-2xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+              className="flex items-center gap-1.5 rounded-2xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
             >
               <span>Về Trang chủ</span>
             </button>
@@ -388,10 +412,10 @@ export function VanDungZone({
     );
   }
 
-  /* ==================== MÀN HÌNH LÀM BÀI 16:9 (FULL SCREEN 0-SCROLL) ==================== */
+  /* ==================== MÀN HÌNH LÀM BÀI 16:9 & NGANG RỘNG ==================== */
   return (
     <div className="h-screen max-h-screen w-full flex flex-col overflow-hidden bg-gradient-to-b from-[#EBF5FF] via-[#F4F9FF] to-[#E3F0FC] text-slate-800 select-none">
-      {/* 1. TOP HEADER (COMPACT 16:9) */}
+      {/* 1. TOP HEADER (TỐI ƯU CHIỀU NGANG) */}
       <header className="h-14 sm:h-15 px-3 sm:px-6 bg-white/95 border-b border-slate-200/80 backdrop-blur-md flex items-center justify-between shrink-0 z-20">
         {/* Left: Back & Title */}
         <div className="flex items-center gap-2 sm:gap-3">
@@ -399,7 +423,7 @@ export function VanDungZone({
             type="button"
             onClick={onBack}
             title="Quay lại Trang chủ"
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-2xs hover:border-[#2389D8] hover:text-[#2389D8]"
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-2xs hover:border-[#2389D8] hover:text-[#2389D8] cursor-pointer"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
@@ -414,19 +438,19 @@ export function VanDungZone({
               </span>
             </div>
             <p className="hidden md:block text-[11px] text-slate-500 truncate">
-              Chào <span className="font-bold text-slate-700">{shortName}</span>! Hãy hoàn thành 5 câu hỏi để ghi danh.
+              Chào <span className="font-bold text-slate-700">{shortName}</span>! (Mỗi câu chỉ trả lời 1 lần duy nhất).
             </p>
           </div>
         </div>
 
-        {/* Right: Realtime Sheet, Sound, Score, Fullscreen, Leaderboard, Profile */}
+        {/* Right: Sync Status, Sound, Score, Fullscreen, Leaderboard, Profile */}
         <div className="flex items-center gap-1.5 sm:gap-2">
           {/* Trạng thái Google Sheets Realtime */}
           <button
             type="button"
             onClick={handleManualSync}
             title="Đồng bộ điểm vào Google Sheets theo thời gian thực (Bấm để đồng bộ ngay)"
-            className="hidden sm:flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50/80 px-2.5 py-1 text-[11px] font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 transition-colors cursor-pointer"
+            className="hidden md:flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50/80 px-2.5 py-1 text-[11px] font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 transition-colors cursor-pointer"
           >
             <RefreshCw className={`h-3 w-3 text-emerald-600 ${isSyncing ? 'animate-spin' : ''}`} />
             <span>{syncStatusMsg}</span>
@@ -452,8 +476,8 @@ export function VanDungZone({
           <button
             type="button"
             onClick={toggleFullscreen}
-            title={isFullscreen ? 'Thu nhỏ cửa sổ' : 'Bật toàn màn hình 16:9'}
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:border-[#2389D8] hover:text-[#2389D8] shadow-2xs"
+            title={isFullscreen ? 'Thu nhỏ cửa sổ' : 'Toàn màn hình'}
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:border-[#2389D8] hover:text-[#2389D8] shadow-2xs cursor-pointer"
           >
             {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </button>
@@ -463,7 +487,7 @@ export function VanDungZone({
             type="button"
             onClick={onGoToLeaderboard}
             title="Xem Bảng xếp hạng"
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:border-[#2389D8] hover:text-[#2389D8] shadow-2xs"
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:border-[#2389D8] hover:text-[#2389D8] shadow-2xs cursor-pointer"
           >
             <Trophy className="h-4 w-4" />
           </button>
@@ -473,7 +497,7 @@ export function VanDungZone({
             type="button"
             onClick={onOpenProfile}
             title="Xem hồ sơ cá nhân"
-            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:border-[#2389D8] shadow-2xs"
+            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:border-[#2389D8] shadow-2xs cursor-pointer"
           >
             <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#2389D8]/10 text-[#2389D8]">
               <User className="h-3.5 w-3.5" />
@@ -483,15 +507,15 @@ export function VanDungZone({
         </div>
       </header>
 
-      {/* 2. PROGRESS STEPPER (COMPACT 16:9, HEIGHT ~48px) */}
+      {/* 2. PROGRESS STEPPER (5 CHẶNG) */}
       <nav className="h-12 px-3 sm:px-6 bg-white/80 border-b border-slate-200/60 flex items-center justify-between shrink-0 z-10">
-        <div className="mx-auto max-w-5xl w-full flex items-center justify-between gap-2">
+        <div className="mx-auto max-w-6xl w-full flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
             <span className="hidden sm:inline text-xs font-black uppercase tracking-wider text-slate-500">
               Tiến trình:
             </span>
             <span className="text-xs font-extrabold text-[#2389D8] tabular-nums">
-              {completedCount}/5 câu
+              {completedCount}/5 câu đã làm
             </span>
           </div>
 
@@ -500,14 +524,14 @@ export function VanDungZone({
             {questions.map((q, idx) => {
               const res = bestScores[q.id];
               const isCurrent = idx === currentIdx;
-              const isDone = res?.is_correct || (res?.score || 0) > 0;
+              const isDone = Boolean(res);
 
               return (
                 <button
                   key={q.id}
                   type="button"
                   onClick={() => setCurrentIdx(idx)}
-                  className={`flex items-center gap-1 sm:gap-1.5 rounded-xl px-2.5 py-1 text-xs font-bold transition-all ${
+                  className={`flex items-center gap-1 sm:gap-1.5 rounded-xl px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${
                     isCurrent
                       ? 'border border-[#2389D8] bg-[#E8F4FF] text-[#2389D8] ring-2 ring-[#2389D8]/20 shadow-xs'
                       : isDone
@@ -526,10 +550,12 @@ export function VanDungZone({
                   >
                     {idx + 1}
                   </span>
-                  <span className="hidden md:inline text-[11px] max-w-[80px] truncate">
+                  <span className="hidden md:inline text-[11px] max-w-[85px] truncate">
                     {q.title.replace(/Thử thách \d:\s*/, '')}
                   </span>
-                  {isDone && <CheckCircle2 className="h-3 w-3 text-emerald-600" />}
+                  {isDone ? (
+                    <Lock className="h-3 w-3 text-emerald-600" title="Đã trả lời & Khóa đáp án" />
+                  ) : null}
                 </button>
               );
             })}
@@ -537,11 +563,11 @@ export function VanDungZone({
         </div>
       </nav>
 
-      {/* 3. MAIN CARD CONTAINER (VỪA VẶN 1 KHUNG HÌNH 16:9) */}
-      <main className="flex-1 min-h-0 flex flex-col p-2 sm:p-3 md:p-4 max-w-5xl mx-auto w-full">
+      {/* 3. MAIN CARD CONTAINER (RỘNG RÃI THEO CHIỀU NGANG, CO GIÃN CỠ CHỮ) */}
+      <main className="flex-1 min-h-0 flex flex-col p-2 sm:p-3 md:p-4 max-w-6xl mx-auto w-full">
         <div className="flex-1 min-h-0 flex flex-col justify-between rounded-3xl border border-slate-200/90 bg-white p-3.5 sm:p-5 shadow-lg overflow-hidden relative card-3d">
           
-          {/* Card Header (Tiêu đề & Đề bài) */}
+          {/* Card Header (Tiêu đề & Đề bài co giãn linh hoạt) */}
           <div className="shrink-0 border-b border-slate-100 pb-2.5">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -552,44 +578,54 @@ export function VanDungZone({
                   {currentQ.subtitle}
                 </span>
               </div>
-              <span className="rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs font-bold text-amber-800">
-                {currentQ.points} điểm
-              </span>
+              <div className="flex items-center gap-2">
+                {isQuestionLocked && (
+                  <span className="flex items-center gap-1 rounded-lg bg-amber-50 border border-amber-200 px-2 py-0.5 text-[11px] font-bold text-amber-800">
+                    <Lock className="h-3 w-3 text-amber-600" />
+                    <span>Đã khóa đáp án</span>
+                  </span>
+                )}
+                <span className="rounded-lg bg-blue-50 border border-blue-200 px-2.5 py-0.5 text-xs font-bold text-[#2389D8]">
+                  {currentQ.points} điểm
+                </span>
+              </div>
             </div>
 
-            {/* Prompt */}
-            <h2 className="mt-2 text-sm sm:text-base font-extrabold text-slate-900 leading-snug">
+            {/* Prompt fluid font size */}
+            <h2 className="mt-2 text-sm sm:text-base lg:text-lg font-black text-slate-900 leading-snug">
               {currentQ.prompt}
             </h2>
             {currentQ.instruction && (
-              <p className="mt-0.5 text-[11px] font-medium text-slate-500 flex items-center gap-1">
+              <p className="mt-0.5 text-[11px] sm:text-xs font-medium text-slate-500 flex items-center gap-1">
                 <HelpCircle className="h-3 w-3 text-[#2389D8] shrink-0" />
                 <span>{currentQ.instruction}</span>
               </p>
             )}
           </div>
 
-          {/* Card Body: Khu vực tương tác câu hỏi (Tối ưu chiều cao 16:9) */}
+          {/* Card Body: Khu vực tương tác câu hỏi (Tự động dàn hàng ngang trên màn hình rộng) */}
           <div className="flex-1 min-h-0 flex flex-col justify-center py-2 sm:py-3 overflow-y-auto">
             
             {/* ========== CÂU 1: CHỌN 1 ĐÁP ÁN (SINGLE CHOICE) ========== */}
             {currentQ.type === 'single_choice' && currentQ.options && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-w-2xl mx-auto w-full">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5 w-full">
                 {currentQ.options.map((opt) => {
                   const isSelected = ans1 === opt.id;
                   return (
                     <button
                       key={opt.id}
                       type="button"
-                      disabled={isAnswerSubmitted}
+                      disabled={isQuestionLocked}
                       onClick={() => setAns1(opt.id)}
-                      className={`flex items-center justify-between rounded-2xl border p-3 text-left transition-all duration-150 card-3d ${
+                      className={`flex flex-col justify-between rounded-2xl border p-3.5 sm:p-4 text-left transition-all duration-150 card-3d ${
                         isSelected
-                          ? 'border-[#2389D8] bg-[#E8F4FF] shadow-md ring-2 ring-[#2389D8]/30 -translate-y-0.5'
-                          : 'border-slate-200 bg-white hover:border-[#2389D8]/60 hover:bg-slate-50/80'
-                      } ${isAnswerSubmitted ? 'cursor-default' : 'cursor-pointer'}`}
+                          ? 'border-[#2389D8] bg-[#E8F4FF] shadow-md ring-2 ring-[#2389D8]/40 -translate-y-0.5'
+                          : isQuestionLocked
+                          ? 'border-slate-200 bg-slate-50/70 opacity-60'
+                          : 'border-slate-200 bg-white hover:border-[#2389D8]/60 hover:bg-slate-50/80 cursor-pointer'
+                      } ${isQuestionLocked ? 'cursor-default' : ''}`}
                     >
-                      <div className="flex items-center gap-2.5">
+                      <div className="flex items-center justify-between w-full mb-2">
                         <span
                           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl font-mono text-xs font-black ${
                             isSelected ? 'bg-[#2389D8] text-white' : 'bg-slate-100 text-slate-700'
@@ -597,17 +633,17 @@ export function VanDungZone({
                         >
                           {opt.id}
                         </span>
-                        <div>
-                          <p className="font-mono text-sm sm:text-base font-bold text-slate-900">{opt.label}</p>
-                          {opt.badge && <p className="text-[10px] text-slate-500">{opt.badge}</p>}
+                        <div
+                          className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${
+                            isSelected ? 'border-[#2389D8] bg-[#2389D8]' : 'border-slate-300'
+                          }`}
+                        >
+                          {isSelected && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
                         </div>
                       </div>
-                      <div
-                        className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${
-                          isSelected ? 'border-[#2389D8] bg-[#2389D8]' : 'border-slate-300'
-                        }`}
-                      >
-                        {isSelected && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+                      <div>
+                        <p className="font-mono text-sm sm:text-base font-bold text-slate-900">{opt.label}</p>
+                        {opt.badge && <p className="text-[11px] text-slate-500 mt-0.5">{opt.badge}</p>}
                       </div>
                     </button>
                   );
@@ -617,15 +653,15 @@ export function VanDungZone({
 
             {/* ========== CÂU 2: CHỌN NHIỀU ĐÁP ÁN (MULTI CHOICE) ========== */}
             {currentQ.type === 'multi_choice' && currentQ.options && (
-              <div className="max-w-2xl mx-auto w-full space-y-2">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="w-full space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-3">
                   {currentQ.options.map((opt) => {
                     const isChecked = ans2.includes(opt.id);
                     return (
                       <button
                         key={opt.id}
                         type="button"
-                        disabled={isAnswerSubmitted}
+                        disabled={isQuestionLocked}
                         onClick={() => {
                           if (isChecked) {
                             setAns2(ans2.filter((id) => id !== opt.id));
@@ -633,11 +669,13 @@ export function VanDungZone({
                             setAns2([...ans2, opt.id]);
                           }
                         }}
-                        className={`flex items-center justify-between rounded-2xl border p-2.5 sm:p-3 text-left transition-all duration-150 card-3d ${
+                        className={`flex items-center justify-between rounded-2xl border p-3 text-left transition-all duration-150 card-3d ${
                           isChecked
                             ? 'border-[#38C9B1] bg-[#E8FAF6] shadow-md ring-2 ring-[#38C9B1]/30 -translate-y-0.5'
-                            : 'border-slate-200 bg-white hover:border-[#38C9B1]/60 hover:bg-slate-50'
-                        } ${isAnswerSubmitted ? 'cursor-default' : 'cursor-pointer'}`}
+                            : isQuestionLocked
+                            ? 'border-slate-200 bg-slate-50/70 opacity-60'
+                            : 'border-slate-200 bg-white hover:border-[#38C9B1]/60 hover:bg-slate-50 cursor-pointer'
+                        } ${isQuestionLocked ? 'cursor-default' : ''}`}
                       >
                         <div className="flex items-center gap-2.5">
                           <span
@@ -663,19 +701,23 @@ export function VanDungZone({
                     );
                   })}
                 </div>
-                <p className="text-[11px] text-slate-400 italic text-center">
-                  * Mẹo: Chọn tất cả các phép toán logic (có thể chọn nhiều hơn 1 đáp án).
-                </p>
+                {!isQuestionLocked && (
+                  <p className="text-[11px] text-slate-400 italic text-center">
+                    * Chọn tất cả các phép toán logic (có thể chọn nhiều hơn 1 đáp án).
+                  </p>
+                )}
               </div>
             )}
 
             {/* ========== CÂU 3: KÉO THẢ CHỮ VÀO Ô TRỐNG (DRAG DROP) ========== */}
             {currentQ.type === 'drag_drop' && currentQ.dragItems && (
-              <div className="max-w-2xl mx-auto w-full space-y-3">
+              <div className="w-full space-y-3 max-w-4xl mx-auto">
                 {/* Thẻ từ cho sẵn */}
-                <div className="rounded-2xl border border-slate-200 bg-[#FFFDF7] p-2.5 text-center">
-                  <p className="text-[11px] font-bold text-slate-600 mb-1.5">
-                    Thẻ từ cho sẵn (Kéo hoặc chạm chọn từ rồi chạm vào ô trống):
+                <div className="rounded-2xl border border-slate-200 bg-[#FFFDF7] p-2.5 sm:p-3 text-center">
+                  <p className="text-[11px] sm:text-xs font-bold text-slate-600 mb-1.5">
+                    {isQuestionLocked
+                      ? 'Thẻ từ đã dùng cho câu hỏi này:'
+                      : 'Thẻ từ cho sẵn (Kéo hoặc chạm chọn từ rồi chạm vào ô trống):'}
                   </p>
                   <div className="flex flex-wrap items-center justify-center gap-2.5">
                     {currentQ.dragItems.map((word) => {
@@ -686,18 +728,20 @@ export function VanDungZone({
                       return (
                         <div
                           key={word}
-                          draggable={!isAnswerSubmitted}
+                          draggable={!isQuestionLocked}
                           onDragStart={(e) => e.dataTransfer.setData('text/plain', word)}
                           onClick={() => {
-                            if (isAnswerSubmitted) return;
+                            if (isQuestionLocked) return;
                             setSelectedWordToPlace(isSelected ? null : word);
                           }}
-                          className={`cursor-grab active:cursor-grabbing select-none rounded-xl px-4 py-1.5 text-xs font-black shadow-xs transition-all ${
+                          className={`select-none rounded-xl px-4 py-1.5 text-xs sm:text-sm font-black shadow-xs transition-all ${
                             isSelected
                               ? 'bg-[#FF9850] text-white ring-4 ring-[#FF9850]/30 scale-105'
                               : isPlaced1 || isPlaced2
                               ? 'bg-slate-200 text-slate-500 opacity-60'
-                              : 'bg-gradient-to-r from-[#FF9850] to-[#FFB073] text-white hover:scale-105'
+                              : isQuestionLocked
+                              ? 'bg-slate-100 text-slate-400'
+                              : 'bg-gradient-to-r from-[#FF9850] to-[#FFB073] text-white hover:scale-105 cursor-grab active:cursor-grabbing'
                           }`}
                         >
                           {word}
@@ -708,19 +752,19 @@ export function VanDungZone({
                 </div>
 
                 {/* Đoạn văn 2 câu điền vào ô trống */}
-                <div className="rounded-2xl border border-slate-200 bg-white p-3.5 sm:p-4 text-xs sm:text-sm text-slate-800 leading-relaxed space-y-3">
+                <div className="rounded-2xl border border-slate-200 bg-white p-3.5 sm:p-4 text-xs sm:text-sm lg:text-base text-slate-800 leading-relaxed space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <span>Biến được dùng để lưu trữ giá trị có thể</span>
                     <div
                       onDragOver={(e) => e.preventDefault()}
                       onDrop={(e) => {
                         e.preventDefault();
-                        if (isAnswerSubmitted) return;
+                        if (isQuestionLocked) return;
                         const w = e.dataTransfer.getData('text/plain');
                         if (w) setAns3((prev) => ({ ...prev, blank1: w }));
                       }}
                       onClick={() => {
-                        if (isAnswerSubmitted) return;
+                        if (isQuestionLocked) return;
                         if (selectedWordToPlace) {
                           setAns3((prev) => ({ ...prev, blank1: selectedWordToPlace }));
                           setSelectedWordToPlace(null);
@@ -728,18 +772,18 @@ export function VanDungZone({
                           setAns3((prev) => ({ ...prev, blank1: '' }));
                         }
                       }}
-                      className={`inline-flex min-h-[36px] min-w-[120px] items-center justify-center rounded-xl border-2 border-dashed px-3 py-0.5 font-bold text-xs transition-colors cursor-pointer ${
+                      className={`inline-flex min-h-[38px] min-w-[130px] items-center justify-center rounded-xl border-2 border-dashed px-3 py-1 font-bold text-xs sm:text-sm transition-colors ${
                         ans3.blank1
                           ? 'border-[#2389D8] bg-[#E8F4FF] text-[#2389D8]'
                           : selectedWordToPlace
                           ? 'border-[#FF9850] bg-amber-50/60 animate-pulse'
                           : 'border-slate-300 bg-slate-50 text-slate-400'
-                      }`}
+                      } ${!isQuestionLocked ? 'cursor-pointer' : 'cursor-default'}`}
                     >
                       {ans3.blank1 ? (
                         <span className="flex items-center gap-1 font-extrabold text-[#2389D8]">
                           {ans3.blank1}
-                          {!isAnswerSubmitted && <X className="h-3 w-3 text-slate-400" />}
+                          {!isQuestionLocked && <X className="h-3 w-3 text-slate-400" />}
                         </span>
                       ) : (
                         <span>[ Ô TRỐNG 1 ]</span>
@@ -754,12 +798,12 @@ export function VanDungZone({
                       onDragOver={(e) => e.preventDefault()}
                       onDrop={(e) => {
                         e.preventDefault();
-                        if (isAnswerSubmitted) return;
+                        if (isQuestionLocked) return;
                         const w = e.dataTransfer.getData('text/plain');
                         if (w) setAns3((prev) => ({ ...prev, blank2: w }));
                       }}
                       onClick={() => {
-                        if (isAnswerSubmitted) return;
+                        if (isQuestionLocked) return;
                         if (selectedWordToPlace) {
                           setAns3((prev) => ({ ...prev, blank2: selectedWordToPlace }));
                           setSelectedWordToPlace(null);
@@ -767,18 +811,18 @@ export function VanDungZone({
                           setAns3((prev) => ({ ...prev, blank2: '' }));
                         }
                       }}
-                      className={`inline-flex min-h-[36px] min-w-[120px] items-center justify-center rounded-xl border-2 border-dashed px-3 py-0.5 font-bold text-xs transition-colors cursor-pointer ${
+                      className={`inline-flex min-h-[38px] min-w-[130px] items-center justify-center rounded-xl border-2 border-dashed px-3 py-1 font-bold text-xs sm:text-sm transition-colors ${
                         ans3.blank2
                           ? 'border-[#38C9B1] bg-[#E8FAF6] text-[#127A69]'
                           : selectedWordToPlace
                           ? 'border-[#FF9850] bg-amber-50/60 animate-pulse'
                           : 'border-slate-300 bg-slate-50 text-slate-400'
-                      }`}
+                      } ${!isQuestionLocked ? 'cursor-pointer' : 'cursor-default'}`}
                     >
                       {ans3.blank2 ? (
                         <span className="flex items-center gap-1 font-extrabold text-[#127A69]">
                           {ans3.blank2}
-                          {!isAnswerSubmitted && <X className="h-3 w-3 text-slate-400" />}
+                          {!isQuestionLocked && <X className="h-3 w-3 text-slate-400" />}
                         </span>
                       ) : (
                         <span>[ Ô TRỐNG 2 ]</span>
@@ -790,40 +834,42 @@ export function VanDungZone({
               </div>
             )}
 
-            {/* ========== CÂU 4: HOÀN THIỆN BIỂU THỨC (FILL BLANK) ========== */}
+            {/* ========== CÂU 4: HOÀN THIỆN BIỂU THỨC (FILL BLANK - 2 CỘT NGANG) ========== */}
             {currentQ.type === 'fill_blank' && (
-              <div className="max-w-2xl mx-auto w-full space-y-3">
-                {/* Gợi ý & Mèo Scratch ngang gọn */}
-                <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-[#F8FBFF] p-2.5">
-                  <ScratchCatAvatar mood="thinking" size={56} className="shrink-0" />
-                  <p className="text-[11px] sm:text-xs font-semibold text-slate-600 leading-relaxed">
+              <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-3 items-center">
+                {/* Gợi ý & Mèo Scratch cột trái */}
+                <div className="lg:col-span-6 flex items-center gap-3 rounded-2xl border border-slate-200 bg-[#F8FBFF] p-3 sm:p-4">
+                  <ScratchCatAvatar mood="thinking" size={60} className="shrink-0" />
+                  <p className="text-xs sm:text-sm font-semibold text-slate-600 leading-relaxed">
                     💡 <strong>Nguyên lý:</strong> Để vẽ hình đa giác đều <strong>n cạnh</strong> trong Scratch, góc quay nhân vật bằng <strong>tổng số đo góc một vòng tròn (360°)</strong> chia cho <strong>số cạnh (n)</strong>.
                   </p>
                 </div>
 
-                {/* Ô nhập biểu thức */}
-                <div className="rounded-2xl border border-slate-200 bg-white p-3 text-center">
+                {/* Ô nhập biểu thức cột phải */}
+                <div className="lg:col-span-6 rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 text-center">
                   <div className="inline-flex items-center justify-center gap-2">
-                    <span className="text-sm font-black tracking-tight text-slate-800">GÓC QUAY =</span>
+                    <span className="text-sm sm:text-base font-black tracking-tight text-slate-800">GÓC QUAY =</span>
                     <input
                       type="text"
-                      disabled={isAnswerSubmitted}
+                      disabled={isQuestionLocked}
                       value={ans4}
                       onChange={(e) => setAns4(e.target.value)}
                       placeholder="360/n"
-                      className="w-40 sm:w-48 rounded-xl border-2 border-[#2389D8] px-3 py-1.5 text-center font-mono text-base font-black text-[#2389D8] shadow-inner focus:outline-none focus:ring-2 focus:ring-[#2389D8]/30"
+                      className={`w-44 sm:w-52 rounded-xl border-2 border-[#2389D8] px-3 py-1.5 text-center font-mono text-base sm:text-lg font-black text-[#2389D8] shadow-inner focus:outline-none ${
+                        isQuestionLocked ? 'bg-slate-50 cursor-not-allowed opacity-90' : 'focus:ring-2 focus:ring-[#2389D8]/30'
+                      }`}
                     />
                   </div>
 
                   {/* Bàn phím nhanh */}
-                  {!isAnswerSubmitted && (
+                  {!isQuestionLocked && (
                     <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5">
                       {['3', '6', '0', '/', 'n', '(', ')'].map((key) => (
                         <button
                           key={key}
                           type="button"
                           onClick={() => setAns4((prev) => prev + key)}
-                          className="h-8 w-9 rounded-lg border border-slate-200 bg-slate-50 font-mono text-xs font-black text-slate-700 shadow-2xs hover:bg-[#2389D8] hover:text-white"
+                          className="h-8 w-9 rounded-lg border border-slate-200 bg-slate-50 font-mono text-xs font-black text-slate-700 shadow-2xs hover:bg-[#2389D8] hover:text-white cursor-pointer"
                         >
                           {key}
                         </button>
@@ -831,14 +877,14 @@ export function VanDungZone({
                       <button
                         type="button"
                         onClick={() => setAns4((prev) => prev.slice(0, -1))}
-                        className="h-8 px-2.5 rounded-lg border border-slate-200 bg-slate-50 text-[11px] font-bold text-slate-700 shadow-2xs hover:bg-rose-50 hover:text-rose-600"
+                        className="h-8 px-2.5 rounded-lg border border-slate-200 bg-slate-50 text-[11px] font-bold text-slate-700 shadow-2xs hover:bg-rose-50 hover:text-rose-600 cursor-pointer"
                       >
                         ⌫ Xóa
                       </button>
                       <button
                         type="button"
                         onClick={() => setAns4('')}
-                        className="h-8 px-2.5 rounded-lg border border-slate-200 bg-slate-50 text-[11px] font-bold text-slate-700 shadow-2xs hover:bg-rose-50 hover:text-rose-600"
+                        className="h-8 px-2.5 rounded-lg border border-slate-200 bg-slate-50 text-[11px] font-bold text-slate-700 shadow-2xs hover:bg-rose-50 hover:text-rose-600 cursor-pointer"
                       >
                         Xóa hết
                       </button>
@@ -848,17 +894,19 @@ export function VanDungZone({
               </div>
             )}
 
-            {/* ========== CÂU 5: GHÉP ĐÔI (MATCHING) ========== */}
+            {/* ========== CÂU 5: GHÉP ĐÔI (MATCHING - 2 CỘT RỘNG RÃI) ========== */}
             {currentQ.type === 'matching' && currentQ.columnA && currentQ.columnB && (
-              <div className="max-w-2xl mx-auto w-full space-y-2">
-                <p className="text-[11px] text-slate-500 italic text-center">
-                  * Chạm chọn 1 mục ở <strong>Cột A (Phép toán)</strong> rồi chạm tiếp vào mục ở <strong>Cột B (Kiểu dữ liệu)</strong> để nối.
-                </p>
+              <div className="w-full space-y-2">
+                {!isQuestionLocked && (
+                  <p className="text-[11px] text-slate-500 italic text-center">
+                    * Chạm chọn 1 mục ở <strong>Cột A (Phép toán)</strong> rồi chạm tiếp vào mục ở <strong>Cột B (Kiểu dữ liệu)</strong> để nối.
+                  </p>
+                )}
 
-                <div className="grid grid-cols-2 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {/* Cột A */}
-                  <div className="space-y-1.5">
-                    <div className="text-[11px] font-black uppercase text-[#2389D8]">Cột A – Phép toán</div>
+                  <div className="space-y-2">
+                    <div className="text-xs font-black uppercase text-[#2389D8]">Cột A – Phép toán</div>
                     {currentQ.columnA.map((item) => {
                       const isSelected = matchingSelectedA === item.id;
                       const matchedB = ans5[item.id];
@@ -868,26 +916,26 @@ export function VanDungZone({
                         <button
                           key={item.id}
                           type="button"
-                          disabled={isAnswerSubmitted}
+                          disabled={isQuestionLocked}
                           onClick={() => {
                             setMatchingSelectedA(isSelected ? null : item.id);
                           }}
-                          className={`w-full rounded-xl border p-2 text-left transition-all ${
+                          className={`w-full rounded-xl border p-2.5 text-left transition-all ${
                             isSelected
                               ? 'border-[#2389D8] bg-[#E8F4FF] ring-2 ring-[#2389D8]/30 shadow-xs'
                               : matchedB
-                              ? 'border-emerald-300 bg-emerald-50/60'
+                              ? 'border-emerald-300 bg-emerald-50/70'
                               : 'border-slate-200 bg-white hover:bg-slate-50'
-                          }`}
+                          } ${!isQuestionLocked ? 'cursor-pointer' : 'cursor-default'}`}
                         >
-                          <div className="flex items-start gap-1.5">
+                          <div className="flex items-start gap-2">
                             <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-[#2389D8] text-[10px] font-black text-white">
                               {item.id}
                             </span>
                             <div className="min-w-0 flex-1">
-                              <p className="text-xs font-bold text-slate-800 truncate">{item.text}</p>
+                              <p className="text-xs sm:text-sm font-bold text-slate-800 truncate">{item.text}</p>
                               {matchedBObj && (
-                                <p className="text-[10px] font-black text-emerald-700">
+                                <p className="text-[11px] font-black text-emerald-700">
                                   ➔ [{matchedBObj.id}] {matchedBObj.text}
                                 </p>
                               )}
@@ -899,8 +947,8 @@ export function VanDungZone({
                   </div>
 
                   {/* Cột B */}
-                  <div className="space-y-1.5">
-                    <div className="text-[11px] font-black uppercase text-[#38C9B1]">Cột B – Kiểu dữ liệu</div>
+                  <div className="space-y-2">
+                    <div className="text-xs font-black uppercase text-[#38C9B1]">Cột B – Kiểu dữ liệu</div>
                     {currentQ.columnB.map((item) => {
                       const linkedA = Object.keys(ans5).find((key) => ans5[key] === item.id);
 
@@ -908,7 +956,7 @@ export function VanDungZone({
                         <button
                           key={item.id}
                           type="button"
-                          disabled={isAnswerSubmitted}
+                          disabled={isQuestionLocked}
                           onClick={() => {
                             if (!matchingSelectedA) return;
                             setAns5((prev) => ({
@@ -917,24 +965,24 @@ export function VanDungZone({
                             }));
                             setMatchingSelectedA(null);
                           }}
-                          className={`w-full rounded-xl border p-2 text-left transition-all ${
+                          className={`w-full rounded-xl border p-2.5 text-left transition-all ${
                             matchingSelectedA
-                              ? 'border-[#FF9850] bg-amber-50/60 hover:bg-amber-100 cursor-pointer animate-pulse'
+                              ? 'border-[#FF9850] bg-amber-50/70 hover:bg-amber-100 cursor-pointer animate-pulse'
                               : linkedA
-                              ? 'border-emerald-300 bg-emerald-50/60'
+                              ? 'border-emerald-300 bg-emerald-50/70'
                               : 'border-slate-200 bg-white'
-                          }`}
+                          } ${!isQuestionLocked ? 'cursor-pointer' : 'cursor-default'}`}
                         >
-                          <div className="flex items-center justify-between gap-1">
-                            <div className="flex items-center gap-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
                               <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-[#38C9B1] text-[10px] font-black text-white">
                                 {item.id}
                               </span>
-                              <span className="text-xs font-bold text-slate-800">{item.text}</span>
+                              <span className="text-xs sm:text-sm font-bold text-slate-800">{item.text}</span>
                             </div>
                             {linkedA && (
-                              <span className="rounded bg-emerald-200/60 px-1.5 py-0.5 text-[9px] font-extrabold text-emerald-800">
-                                [{linkedA}]
+                              <span className="rounded bg-emerald-200/70 px-2 py-0.5 text-[10px] font-extrabold text-emerald-800">
+                                Từ [{linkedA}]
                               </span>
                             )}
                           </div>
@@ -944,12 +992,12 @@ export function VanDungZone({
                   </div>
                 </div>
 
-                {Object.keys(ans5).length > 0 && !isAnswerSubmitted && (
+                {Object.keys(ans5).length > 0 && !isQuestionLocked && (
                   <div className="text-right">
                     <button
                       type="button"
                       onClick={() => setAns5({})}
-                      className="text-[10px] font-bold text-slate-400 hover:text-rose-600"
+                      className="text-[11px] font-bold text-slate-400 hover:text-rose-600 cursor-pointer"
                     >
                       Hủy các ghép nối
                     </button>
@@ -960,7 +1008,7 @@ export function VanDungZone({
 
             {/* ========== PHẢN HỒI COMPACT TỪ MÈO SCRATCH ========== */}
             {feedback && (
-              <div className="mt-2.5 max-w-2xl mx-auto w-full animate-fadeIn">
+              <div className="mt-2.5 max-w-4xl mx-auto w-full animate-fadeIn">
                 <ScratchCatGuide
                   mood={feedback.is_correct ? 'cheering' : 'encourage'}
                   title={
@@ -968,7 +1016,7 @@ export function VanDungZone({
                       ? `Chính xác! (+${feedback.score} điểm)`
                       : feedback.score > 0
                       ? `Đúng một phần! (+${feedback.score} điểm)`
-                      : 'Chưa chính xác'
+                      : 'Chưa chính xác (0 điểm)'
                   }
                   message={feedback.explanation}
                 />
@@ -976,14 +1024,14 @@ export function VanDungZone({
             )}
           </div>
 
-          {/* Card Footer: Thanh nút Xác nhận / Tiếp tục (Luôn hiển thị vừa vặn dưới đáy) */}
+          {/* Card Footer: Thanh nút Xác nhận / Tiếp tục (KHÓA NẾU ĐÃ LÀM) */}
           <div className="shrink-0 border-t border-slate-100 pt-2.5 flex items-center justify-between gap-2">
             <div>
               {currentIdx > 0 && (
                 <button
                   type="button"
                   onClick={() => setCurrentIdx((i) => i - 1)}
-                  className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                  className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
                 >
                   <ArrowLeft className="h-3.5 w-3.5" />
                   <span>Câu trước</span>
@@ -991,18 +1039,37 @@ export function VanDungZone({
               )}
             </div>
 
-            <div className="flex items-center gap-2">
-              {!isAnswerSubmitted ? (
+            <div className="flex items-center gap-2.5">
+              {isQuestionLocked ? (
+                // ĐÃ LÀM: Hiển thị trạng thái đã khóa và nút Tiếp tục
+                <>
+                  <div className="hidden sm:flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-200">
+                    <Lock className="h-3.5 w-3.5 text-amber-600" />
+                    <span>Đã trả lời ({bestScores[currentQ.id]?.score}/{currentQ.points} đ) · Đã khóa</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleNext}
+                    className="btn-3d flex items-center gap-1.5 rounded-xl bg-[#38C9B1] px-5 py-2 text-xs sm:text-sm font-extrabold text-white shadow-md hover:bg-[#2EB8A1] cursor-pointer"
+                  >
+                    <span>{currentIdx < questions.length - 1 ? 'CÂU TIẾP THEO' : 'XEM KẾT QUẢ TỔNG KẾT'}</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </button>
+                </>
+              ) : !isAnswerSubmitted ? (
+                // CHƯA LÀM: Nút XÁC NHẬN lần duy nhất
                 <button
                   type="button"
                   disabled={submitting}
                   onClick={handleSubmit}
-                  className="btn-3d flex items-center gap-1.5 rounded-xl bg-[#2389D8] px-5 py-2 text-xs sm:text-sm font-extrabold text-white shadow-md hover:bg-[#1C76BD] disabled:opacity-60 cursor-pointer"
+                  className="btn-3d flex items-center gap-1.5 rounded-xl bg-[#2389D8] px-6 py-2 text-xs sm:text-sm font-extrabold text-white shadow-md hover:bg-[#1C76BD] disabled:opacity-60 cursor-pointer"
                 >
-                  <span>XÁC NHẬN</span>
+                  <span>XÁC NHẬN (1 LẦN DUY NHẤT)</span>
                   <CornerDownLeft className="h-3.5 w-3.5" />
                 </button>
               ) : (
+                // VỪA NỘP XONG: Nút TIẾP TỤC
                 <button
                   type="button"
                   onClick={handleNext}
