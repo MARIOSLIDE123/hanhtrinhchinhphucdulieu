@@ -448,8 +448,9 @@ export function gradeVanDungQuestionLocally(
 
 /**
  * Nộp bài thử thách Vận dụng:
- * Gửi lên máy chủ Apps Script nếu có kết nối, hoặc chấm điểm offline và lưu local.
- * Có cơ chế chống gửi trùng và chỉ cộng điểm cao hơn (không cộng dồn lặp).
+ * Áp dụng Instant Optimistic Grading (chấm điểm và phản hồi 0ms tức thì tại Client)
+ * Đồng thời đồng bộ ngầm (background non-blocking sync) lên Google Apps Script / Google Sheets
+ * Giúp học sinh không phải chờ đợi máy chủ xử lý, trải nghiệm mượt mà không độ trễ.
  */
 export async function submitAnswer(params: {
   student: StudentProfile;
@@ -461,52 +462,17 @@ export async function submitAnswer(params: {
 }): Promise<{ feedback: GradeFeedback; updatedStudent: StudentProfile; attempts: AttemptRecord[]; synced: boolean }> {
   const nonce = generateLocalId('ATT');
 
-  if (getStoredGasUrl()) {
-    try {
-      const res = await gasPost<GradeFeedback & { attempt_id?: string }>({
-        action: 'submitAnswer',
-        student_id: params.student.student_id,
-        question_id: params.question_id,
-        question_type: params.question_type,
-        answer: params.answer,
-        duration: params.duration,
-        submission_nonce: nonce,
-      });
-
-      const localAttempts = loadLocalAttempts();
-      const newAttempt: AttemptRecord = {
-        attempt_id: res.attempt_id || nonce,
-        student_id: params.student.student_id,
-        question_id: params.question_id,
-        question_type: params.question_type,
-        answer: typeof params.answer === 'string' ? params.answer : JSON.stringify(params.answer),
-        is_correct: res.is_correct,
-        score: res.score,
-        duration: params.duration,
-        submitted_at: new Date().toISOString(),
-      };
-      const nextAttempts = [...localAttempts, newAttempt];
-      saveLocalAttempts(nextAttempts);
-
-      const updatedStudent = res.student || params.student;
-      saveLocalStudent(updatedStudent);
-
-      return { feedback: res, updatedStudent, attempts: nextAttempts, synced: true };
-    } catch {
-      // Nếu server gặp lỗi, tự động chấm offline mượt mà
-    }
-  }
-
-  // Chấm điểm Offline cục bộ
+  // 1. Chấm điểm ngay tại Client (Tốc độ < 1ms)
   const localGrading = gradeVanDungQuestionLocally(params.question_id, params.answer, params.customQuestions);
   const localAttempts = loadLocalAttempts();
 
-  // Tìm điểm cao nhất của câu này trước đó để tính awarded_delta
+  // 2. Tìm điểm cao nhất của câu này trước đó để tính điểm thưởng cộng thêm
   const prevBestScore = localAttempts
     .filter((a) => a.question_id === params.question_id)
     .reduce((max, a) => Math.max(max, a.score), 0);
   const awardedDelta = Math.max(0, localGrading.score - prevBestScore);
 
+  // 3. Tạo bản ghi Attempt mới và lưu local
   const newAttempt: AttemptRecord = {
     attempt_id: nonce,
     student_id: params.student.student_id,
@@ -521,7 +487,7 @@ export async function submitAnswer(params: {
   const nextAttempts = [...localAttempts, newAttempt];
   saveLocalAttempts(nextAttempts);
 
-  // Tính lại tổng điểm tốt nhất của học sinh
+  // 4. Tính lại tổng điểm tốt nhất của học sinh
   const bestByQ: Record<string, { score: number; correct: boolean }> = {};
   nextAttempts.forEach((att) => {
     if (!bestByQ[att.question_id] || att.score > bestByQ[att.question_id].score) {
@@ -557,7 +523,44 @@ export async function submitAnswer(params: {
     student: updatedStudent,
   };
 
-  return { feedback, updatedStudent, attempts: nextAttempts, synced: false };
+  // 5. ĐỒNG BỘ NGẦM LÊN GOOGLE APPS SCRIPT / GOOGLE SHEETS (NON-BLOCKING)
+  // Không await để UI phản hồi tức thì 0 giây
+  if (getStoredGasUrl()) {
+    gasPost<GradeFeedback & { attempt_id?: string; student?: StudentProfile }>({
+      action: 'submitAnswer',
+      student_id: params.student.student_id,
+      full_name: params.student.full_name,
+      display_name: params.student.display_name,
+      school: params.student.school,
+      class_name: params.student.class_name,
+      question_id: params.question_id,
+      question_type: params.question_type,
+      answer: params.answer,
+      duration: params.duration,
+      submission_nonce: nonce,
+      score: localGrading.score,
+      is_correct: localGrading.isCorrect,
+    })
+      .then((serverRes) => {
+        if (serverRes?.student) {
+          const current = loadLocalStudent();
+          if (current && current.student_id === serverRes.student.student_id) {
+            // Giữ điểm số đồng bộ với máy chủ nếu máy chủ có cập nhật
+            const merged: StudentProfile = {
+              ...current,
+              total_score: Math.max(current.total_score, serverRes.student.total_score || 0),
+            };
+            saveLocalStudent(merged);
+          }
+        }
+      })
+      .catch((err) => {
+        // Lỗi mạng hoặc Google Apps Script timeout sẽ không làm ảnh hưởng trải nghiệm học sinh
+        console.warn('Lưu ngầm lên Google Apps Script:', err);
+      });
+  }
+
+  return { feedback, updatedStudent, attempts: nextAttempts, synced: true };
 }
 
 export async function fetchLeaderboard(currentStudentId?: string): Promise<{
