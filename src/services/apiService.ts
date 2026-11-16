@@ -539,7 +539,9 @@ export async function submitAnswer(params: {
       duration: params.duration,
       submission_nonce: nonce,
       score: localGrading.score,
+      max_score: localGrading.maxScore,
       is_correct: localGrading.isCorrect,
+      explanation: localGrading.explanation,
     })
       .then((serverRes) => {
         if (serverRes?.student) {
@@ -561,6 +563,39 @@ export async function submitAnswer(params: {
   }
 
   return { feedback, updatedStudent, attempts: nextAttempts, synced: true };
+}
+
+/**
+ * Đồng bộ toàn bộ điểm số của học sinh lên Google Sheets theo thời gian thực
+ */
+export async function syncStudentScoreToGas(student: StudentProfile): Promise<{ ok: boolean; message: string }> {
+  if (!getStoredGasUrl()) {
+    return { ok: false, message: 'Chưa cấu hình URL Google Apps Script.' };
+  }
+  try {
+    const attempts = loadLocalAttempts().filter((a) => a.student_id === student.student_id);
+    for (const att of attempts) {
+      await gasPost({
+        action: 'submitAnswer',
+        student_id: student.student_id,
+        full_name: student.full_name,
+        display_name: student.display_name,
+        school: student.school,
+        class_name: student.class_name,
+        question_id: att.question_id,
+        question_type: att.question_type,
+        answer: att.answer,
+        duration: att.duration || 5,
+        submission_nonce: att.attempt_id,
+        score: att.score,
+        is_correct: att.is_correct,
+      });
+    }
+    return { ok: true, message: 'Đã đồng bộ toàn bộ điểm số vào Google Sheets thành công!' };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    return { ok: false, message: errorMsg || 'Lỗi khi đồng bộ Google Sheets' };
+  }
 }
 
 export async function fetchLeaderboard(currentStudentId?: string): Promise<{

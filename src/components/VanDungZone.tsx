@@ -7,11 +7,14 @@ import {
   HelpCircle,
   Maximize2,
   Minimize2,
+  RefreshCw,
   RotateCcw,
   Sparkles,
   Star,
   Trophy,
   User,
+  Volume2,
+  VolumeX,
   X,
 } from 'lucide-react';
 import {
@@ -21,7 +24,8 @@ import {
   VanDungQuestion,
 } from '../types';
 import { ScratchCatAvatar, ScratchCatGuide } from './ScratchCatGuide';
-import { getShortStudentName } from '../services/apiService';
+import { getShortStudentName, syncStudentScoreToGas } from '../services/apiService';
+import { soundService } from '../services/soundService';
 
 interface VanDungZoneProps {
   student: StudentProfile;
@@ -73,6 +77,31 @@ export function VanDungZone({
 
   // Chế độ Toàn màn hình 16:9 (Fullscreen)
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // Trạng thái âm thanh & đồng bộ Google Sheets
+  const [isMuted, setIsMuted] = useState(soundService.getIsMuted());
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatusMsg, setSyncStatusMsg] = useState<string>('Đã kết nối Google Sheets');
+
+  const toggleMute = () => {
+    const next = soundService.toggleMute();
+    setIsMuted(next);
+  };
+
+  const handleManualSync = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    setSyncStatusMsg('Đang đồng bộ Google Sheets...');
+    const res = await syncStudentScoreToGas(student);
+    if (res.ok) {
+      setSyncStatusMsg('Đã đồng bộ Google Sheets ✓');
+    } else {
+      setSyncStatusMsg('Chưa cập nhật Sheet');
+    }
+    setTimeout(() => {
+      setIsSyncing(false);
+      setSyncStatusMsg('Đã kết nối Google Sheets');
+    }, 3000);
+  };
 
   useEffect(() => {
     const handleFsChange = () => {
@@ -178,6 +207,13 @@ export function VanDungZone({
       });
       setFeedback(fb);
       setIsAnswerSubmitted(true);
+
+      // Phát âm thanh tương tác Đúng / Sai
+      if (fb.is_correct || fb.score > 0) {
+        soundService.playCorrect();
+      } else {
+        soundService.playIncorrect();
+      }
     } finally {
       setSubmitting(false);
     }
@@ -383,8 +419,29 @@ export function VanDungZone({
           </div>
         </div>
 
-        {/* Right: Score, Fullscreen, Leaderboard, Profile */}
-        <div className="flex items-center gap-2 sm:gap-2.5">
+        {/* Right: Realtime Sheet, Sound, Score, Fullscreen, Leaderboard, Profile */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Trạng thái Google Sheets Realtime */}
+          <button
+            type="button"
+            onClick={handleManualSync}
+            title="Đồng bộ điểm vào Google Sheets theo thời gian thực (Bấm để đồng bộ ngay)"
+            className="hidden sm:flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50/80 px-2.5 py-1 text-[11px] font-bold text-emerald-800 shadow-2xs hover:bg-emerald-100 transition-colors cursor-pointer"
+          >
+            <RefreshCw className={`h-3 w-3 text-emerald-600 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>{syncStatusMsg}</span>
+          </button>
+
+          {/* Sound Toggle Button */}
+          <button
+            type="button"
+            onClick={toggleMute}
+            title={isMuted ? 'Bật âm thanh tương tác' : 'Tắt âm thanh tương tác'}
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:border-[#2389D8] hover:text-[#2389D8] shadow-2xs cursor-pointer"
+          >
+            {isMuted ? <VolumeX className="h-4 w-4 text-rose-500" /> : <Volume2 className="h-4 w-4 text-[#2389D8]" />}
+          </button>
+
           {/* Score Pill */}
           <div className="flex items-center gap-1.5 rounded-xl bg-[#FFD34F]/25 px-3 py-1.5 text-xs font-extrabold text-amber-900 shadow-2xs">
             <Star className="h-3.5 w-3.5 fill-amber-500 text-amber-500" />

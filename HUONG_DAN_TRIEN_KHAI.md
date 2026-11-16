@@ -1,10 +1,11 @@
 # HƯỚNG DẪN TRIỂN KHAI HỆ THỐNG DATA ADVENTURE (GOOGLE SHEETS + APPS SCRIPT)
 
-Ứng dụng **DATA ADVENTURE – Hành trình chinh phục dữ liệu (Bài 13: Biểu diễn dữ liệu)** hoạt động theo kiến trúc:
-
-`FRONTEND APP (React/Vite) ➔ GOOGLE APPS SCRIPT (Web App) ➔ GOOGLE SHEETS`
-
-Mọi học sinh từ các trường khác nhau kết nối về **cùng một URL Web App** để đồng bộ điểm, hồ sơ, nhóm và bảng xếp hạng toàn quốc theo thời gian thực.
+> ⚡ **LƯU Ý CỰC KỲ QUAN TRỌNG KHI NÂNG CẤP LÊN 5 THỬ THÁCH VẬN DỤNG**:
+> Để điểm số của 5 câu hỏi Vận dụng (`VD_Q1` đến `VD_Q5`) được **ghi nhận trực tiếp theo thời gian thực vào Google Sheet**, bạn chỉ cần thực hiện 1 thao tác duy nhất (mất 30 giây):
+> 1. Mở trang Google Sheets của bạn ➔ Vào menu **Tiện ích mở rộng (Extensions)** ➔ **Apps Script**.
+> 2. Mở tệp `Code.gs`, xóa sạch nội dung cũ và dán toàn bộ mã mới từ file [`google-apps-script/Code.gs`](./google-apps-script/Code.gs) vào ➔ Nhấn **Lưu (Ctrl + S)**.
+> 3. Ở góc trên bên phải, nhấn **Triển khai (Deploy)** ➔ **Quản lý bản triển khai (Manage deployments)** ➔ Nhấn biểu tượng **Chỉnh sửa (biểu tượng bút chì)** của bản triển khai hiện tại ➔ Tại mục **Phiên bản (Version)** chọn **Phiên bản mới (New version)** ➔ Nhấn **Triển khai (Deploy)**.
+> *(URL Web App sẽ giữ nguyên không đổi, và Google Sheet sẽ bắt đầu nhận điểm 5 thử thách tức thì theo thời gian thực!)*
 
 ---
 

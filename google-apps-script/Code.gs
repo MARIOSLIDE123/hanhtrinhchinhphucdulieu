@@ -453,7 +453,7 @@ function submitAnswer_(ss, body) {
     return { ok: false, error: 'Thiếu thông tin student_id hoặc question_id.' };
   }
 
-  // Kiểm tra học sinh tồn tại
+  // Kiểm tra học sinh tồn tại, nếu chưa có (ví dụ do lỗi mạng trước đó) thì tự động tạo mới để không mất điểm
   var studentSheet = ss.getSheetByName(SHEET_NAMES.STUDENTS);
   var studentRows = studentSheet.getDataRange().getValues();
   var studentRowIndex = -1;
@@ -464,7 +464,14 @@ function submitAnswer_(ss, body) {
     }
   }
   if (studentRowIndex === -1) {
-    return { ok: false, error: 'Học sinh chưa đăng ký trên hệ thống.' };
+    var fullName = String(body.full_name || 'Học sinh').trim();
+    var displayName = makeDisplayName_(fullName);
+    var school = String(body.school || 'Trường THCS').trim();
+    var className = String(body.class_name || '7A').trim();
+    var nowStr = new Date().toISOString();
+    studentSheet.appendRow([studentId, fullName, displayName, school, className, nowStr, nowStr, 0, 0, 0]);
+    studentRowIndex = studentSheet.getLastRow();
+    studentRows = studentSheet.getDataRange().getValues();
   }
 
   var attemptSheet = ss.getSheetByName(SHEET_NAMES.ATTEMPTS);
@@ -487,10 +494,21 @@ function submitAnswer_(ss, body) {
     }
   }
 
-  // Chấm điểm phía máy chủ
+  // Chấm điểm phía máy chủ với Fallback thông minh (Universal scoring)
   var gradeResult = gradeQuestionOnServer_(ss, questionId, answer);
   if (!gradeResult.found) {
-    return { ok: false, error: 'Mã câu hỏi không tồn tại trên máy chủ: ' + questionId };
+    if (body.score !== undefined) {
+      gradeResult = {
+        found: true,
+        type: questionType || 'custom',
+        isCorrect: body.is_correct === true || String(body.is_correct) === 'true',
+        score: Number(body.score || 0),
+        maxScore: Number(body.max_score || 20),
+        explanation: String(body.explanation || '')
+      };
+    } else {
+      return { ok: false, error: 'Mã câu hỏi không tồn tại trên máy chủ: ' + questionId };
+    }
   }
 
   // Chỉ cộng phần chênh lệch nếu lần này cao hơn (không cộng điểm lặp lại khi gửi nhiều lần)

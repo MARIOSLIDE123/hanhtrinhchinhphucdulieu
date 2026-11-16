@@ -14,8 +14,11 @@ import {
   Star,
   Trophy,
   User,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { getShortStudentName } from '../services/apiService';
+import { soundService } from '../services/soundService';
 import {
   AppConfig,
   AttemptRecord,
@@ -57,8 +60,14 @@ export function HomeScreen({
   const shortName = getShortStudentName(student.full_name);
   const unlockedBadges = badges.filter((b) => b.unlocked);
 
-  // Fullscreen state
+  // Fullscreen & Sound state
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isMuted, setIsMuted] = useState(soundService.getIsMuted());
+
+  const toggleMute = () => {
+    const next = soundService.toggleMute();
+    setIsMuted(next);
+  };
 
   useEffect(() => {
     const handleFsChange = () => {
@@ -115,6 +124,16 @@ export function HomeScreen({
               <Star className="h-3.5 w-3.5 fill-amber-500 text-amber-500" />
               <span>{student.total_score} đ</span>
             </div>
+
+            {/* Âm thanh */}
+            <button
+              type="button"
+              onClick={toggleMute}
+              title={isMuted ? 'Bật âm thanh' : 'Tắt âm thanh'}
+              className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:border-[#2389D8] hover:text-[#2389D8] shadow-2xs cursor-pointer"
+            >
+              {isMuted ? <VolumeX className="h-3.5 w-3.5 text-rose-500" /> : <Volume2 className="h-3.5 w-3.5 text-[#2389D8]" />}
+            </button>
 
             {/* Bật toàn màn hình */}
             <button
